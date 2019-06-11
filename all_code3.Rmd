@@ -1,0 +1,1636 @@
+---
+title: Developmentally regulated defense rapidly inhibits *Phytophthora capsici* infection 
+  in cucumber fruit.
+subtitle: Analysis workflow 
+author: "Ben Mansfeld"
+date: "June 3, 2019"
+header-includes:
+- \usepackage{pdflscape}
+- \newcommand{\blandscape}{\begin{landscape}}
+- \newcommand{\elandscape}{\end{landscape}}
+- \usepackage{graphicx}
+- \usepackage{float} #use the 'float' package
+- \floatplacement{figure}{H} #make every figure with caption = h
+output: 
+  pdf_document:
+    fig_cap: yes
+    keep_tex: yes
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	fig.align = "center",
+	cache = TRUE
+)
+```
+
+```{r setuplibs, message=FALSE, warning=FALSE}
+#source("https://bioconductor.org/biocLite.R")
+#biocLite("tximport")
+#bioCLite("impute")
+library(tidyverse)
+library(UpSetR)
+library(grid)
+library(tximport)
+library(stringr)
+library(readr)
+#library(topGO)
+library(DESeq2)
+library(kableExtra)
+library(rjson)
+# library(xlsx)
+library(ggalluvial)
+library(WGCNA)
+library(pheatmap)
+library(topGO)
+```
+
+# Transcriptome Experiment 1
+
+## Salmon mapping 
+
+```{r dlgenome, engine='bash' , eval=FALSE}
+mkdir infectionRNAseq
+mkdir genome
+mkdir cl9930-v2
+
+wget ftp://cucurbitgenomics.org/pub/cucurbit/genome/cucumber/Chinese_long/v2/*
+```
+
+Make a cdna fasta file for the cuke transcriptome
+
+```{r maketxfasta, engine='bash', eval=FALSE}
+module load cufflinks/2.2.1
+
+gzip -dc "~/infectionRNAseq/genome/cl9930-v2/cucumber_ChineseLong_v2.gff3.gz" > \
+cucumber_ChineseLong_v2.gff3
+
+gzip -dc "~/infectionRNAseq/genome/cl9930-v2/cucumber_ChineseLong_v2_genome.fa.gz" > \
+cucumber_ChineseLong_v2_genome.fa
+
+gffread -g cucumber_ChineseLong_v2_genome.fa \
+-w cucumber_ChineseLong_v2_cdna.fa \
+cucumber_ChineseLong_v2.gff3
+```
+
+
+```{r trimreads, engine='bash', eval=FALSE}
+#!/bin/bash -login
+#PBS -l walltime=02:00:00
+#PBS -l nodes=1:ppn=17,feature=gbe,mem=8gb
+#PBS -t 1-30
+
+#set wd
+cd ${PBS_O_WORKDIR}
+mkdir FastQC/
+mkdir FastQC/Cleaned
+
+# get the filename in the files.txt file at position PBS_ARRAY_INDEX
+SAMPLENAME=`ls *001.fastq.gz | head -n +${PBS_ARRAYID} | tail -n 1`
+
+module load Trimmomatic
+
+java -jar $TRIM/trimmomatic SE \
+-threads 16 \
+-phred33 ${SAMPLENAME} ${SAMPLENAME%.fast*}_trimmed.fastq.gz \
+ILLUMINACLIP:$ADAPTERS/TruSeq-SE.fa:2:30:10 \
+LEADING:3 \
+TRAILING:3 \
+SLIDINGWINDOW:4:15 \
+MINLEN:35
+
+module load FastQC/0.11.3
+fastqc -f fastq -noextract ${SAMPLENAME%.fast*}_trimmed.fastq.gz -o FastQC/Cleaned
+```
+
+Building a salmon index file
+
+```{r salmonindex, engine='bash', eval=FALSE}
+salmon index -t cucumber_ChineseLong_v2_cdna.fa -i cucumber_ChineseLong_v2_salmon_index
+```
+
+Run Salmon
+
+```{r salmonrun, engine='bash', eval=FALSE}
+for fn in `ls rawReads/*trimmed.fastq.gz`;
+do
+nodir=${fn#rawReads/}
+echo "Processing sample ${fn%_S*}"
+salmon quant -i genome/cl9930-v2/cucumber_ChineseLong_v2_salmon_index -l A \
+         -r ${fn} \
+         -p 8 -o quants/${nodir%_S*}_quant
+done 
+```
+
+## Differntial expression with DESeq2
+
+load GO term functiosn and files.
+
+```{r loadGOterms}
+source("topGO functions.R")
+
+CukeGO <- read.csv(file = "CukeGO.csv", header = TRUE, stringsAsFactors = FALSE)
+
+#prepare as named list for use with topGO
+GOList<-setNames(nm = CukeGO$X, strsplit(CukeGO$GOTerm, "; "))
+```
+
+## Differential expression analysis
+
+Import using tximport
+
+```{r importExp1}
+samples <- read.csv(file = "samples_exp1.csv", row.names = 1)
+files <- file.path("quants", samples$directory, "quant.sf")
+names(files) <- row.names(samples)
+
+samples$timepoint <- as.factor(paste0("T", samples$timepoint))
+samples$age <- relevel(samples$age, "8dpp")
+samples$timepoint <- fct_relevel(samples$timepoint, "T0", "T4", "T24", "T48")
+
+samples$condition <-
+    fct_relevel(
+    paste0(samples$age, "_", samples$timepoint),
+    "8dpp_T0",
+    "8dpp_T4",
+    "8dpp_T24",
+    "8dpp_T48",
+    "16dpp_T0",
+    "16dpp_T4",
+    "16dpp_T24",
+    "16dpp_T48"
+    )
+
+samples$name <- row.names(samples)
+
+# make tx2gene file
+tx2gene <- read.table(file = files[1], sep = "\t", header = TRUE)
+tx2gene <- tx2gene[1]
+tx2gene$geneid <- str_replace(tx2gene$Name, pattern = "\\..*", replacement = "")
+
+files <- file.path("quants", samples$directory, "quant.sf")
+names(files) <- row.names(samples)
+
+txiAll <- tximport(files, type = "salmon", tx2gene = tx2gene, dropInfReps = TRUE)
+
+ddsTxi <- DESeqDataSetFromTximport(txiAll, colData = samples, design = ~ condition)
+ddsTxi_filt <- ddsTxi[rowSums(counts(ddsTxi)) >= 25, ]
+
+dds_exp1 <- DESeq(ddsTxi_filt)
+```
+
+Reads mapping summary
+
+```{r mappingStatsExp1}
+# Import JSON files for sample read mapping results
+
+jsons <- file.path("quants", samples$directory, "aux_info", "meta_info.json")
+samples$totalReads <- sapply(jsons, FUN = function(x) {
+    fromJSON(file = x)$num_processed
+})
+
+samples$Mapped <- sapply(jsons, FUN = function(x) {
+    fromJSON(file = x)$num_mapped
+})
+```
+
+```{r expdesExp1}
+expDesign <- samples %>% 
+    group_by(age, timepoint) %>% summarise(Reps = n())
+knitr::kable(as.data.frame(expDesign), caption = "The experimental design") %>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+samples %>%
+    mutate(sampleName = rownames(.),
+    Unmapped = totalReads - Mapped) %>%
+    arrange(age, timepoint) %>%
+    mutate(sampleName = fct_inorder(sampleName)) %>%
+    gather(
+    key = "Reads",
+    value = "Count",
+    -directory,
+    -age,
+    -name,
+    -timepoint,
+    -condition,
+    -sampleName,
+    -totalReads
+    ) %>%
+    mutate(Percent = round(Count / totalReads * 100, digits = 1)) %>%
+    group_by(Reads) %>%
+    summarize(mean(Count), mean(Percent))
+
+samples %>%
+    mutate(sampleName = rownames(.),
+    Unmapped = totalReads - Mapped) %>%
+    arrange(age, timepoint) %>%
+    mutate(sampleName = fct_inorder(sampleName)) %>%
+    gather(
+    key = "Reads",
+    value = "Count",
+    -directory,
+    -age,
+    -name,
+    -timepoint,
+    -condition,
+    -sampleName,
+    -totalReads
+    ) %>% 
+    ggplot(aes(
+        x = sampleName,
+        y = Count,
+        fill = Reads,
+        label = paste0(round(Count / totalReads * 100, digits = 1), "%")
+        )) +
+        geom_bar(stat = "identity", position = "stack") +
+        geom_text(
+        size = 2,
+        stat = "identity",
+        position = "stack",
+        hjust = 0.5
+        ) +
+        theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+```
+
+Principal component analysis
+
+```{r pcaExp1}
+rld <- rlog(dds_exp1, blind = TRUE)
+
+pcaData <- plotPCA(rld, returnData=TRUE, ntop = 500)
+
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pcaData <- pcaData %>% 
+    mutate(Age = dds_exp1$age,
+           Timepoint = dds_exp1$timepoint)
+
+ggplot(pcaData, aes(PC1, PC2, color = Timepoint, shape = Age)) +
+    geom_point(size=5) +
+    xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+    ylab(paste0("PC2: ",percentVar[2],"% variance")) +
+    cowplot::theme_cowplot() +
+    theme(strip.text =         element_text(
+        colour = "grey10",
+        size = rel(0.8),
+        margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+        ),
+        legend.position="bottom") +
+    scale_color_viridis_d(direction = -1)
+   #ggrepel::geom_text_repel(aes(label = name))
+```
+
+```{r pearsExp1}
+rld_df <- as.data.frame(assay(rld))
+cor(rld_df[, dds_exp1$age == "16dpp" & dds_exp1$timepoint == "T0"], method="pearson")
+cor(rld_df[, dds_exp1$age == "16dpp" & dds_exp1$timepoint == "T4"], method="pearson")
+cor(rld_df[, dds_exp1$age == "16dpp" & dds_exp1$timepoint == "T24"], method="pearson")
+cor(rld_df[, dds_exp1$age == "16dpp" & dds_exp1$timepoint == "T48"], method="pearson")
+
+cor(rld_df[, dds_exp1$age == "8dpp" & dds_exp1$timepoint == "T0"], method="pearson")
+cor(rld_df[, dds_exp1$age == "8dpp" & dds_exp1$timepoint == "T4"], method="pearson")
+cor(rld_df[, dds_exp1$age == "8dpp" & dds_exp1$timepoint == "T24"], method="pearson")
+cor(rld_df[, dds_exp1$age == "8dpp" & dds_exp1$timepoint == "T48"], method="pearson")
+
+cor<-as.matrix(cor(rld_df, method="pearson"))
+rownames(cor) <- colnames(cor) <- with(colData(dds_exp1), paste(age, timepoint, sep="-"))
+pheatmap::pheatmap(cor)
+```
+
+```{r distheatmapExp1}
+distsRL <- dist(t(assay(rld)))
+mat <- as.matrix(distsRL)
+rownames(mat) <-  colData(rld)$condition
+colnames(mat) <-  colData(rld)$sampleNO
+
+#hmcol <- colorRampPalette(brewer.pal(9, "Blues"))(255)
+pheatmap(mat)
+
+```
+
+```{r conseqContrastsExp1}
+comparsion <- 1:3
+timepoints <- c("T0", "T4", "T24", "T48")
+
+
+conditions <- paste0("8dpp_", timepoints)
+timeContrasts8 <- bind_rows(lapply(comparsion, function(x) {
+    lfc <- lfcShrink(dds_exp1, contrast = c("condition", conditions[x + 1], conditions[x]))
+    as.data.frame(lfc) %>%
+    mutate(
+    geneid = rownames(.),
+    Contrast = paste0(timepoints[x + 1]," vs ", timepoints[x])
+    )
+}))
+
+conditions <- paste0("16dpp_", timepoints)
+timeContrasts16 <- bind_rows(lapply(comparsion, function(x) {
+    lfc <- lfcShrink(dds_exp1, contrast = c("condition", conditions[x + 1], conditions[x]))
+    as.data.frame(lfc) %>%
+    mutate(
+    geneid = rownames(.),
+    Contrast = paste0(timepoints[x + 1]," vs ", timepoints[x])
+    )
+}))
+
+timeContrasts <- bind_rows("8dpp" = timeContrasts8, "16dpp" = timeContrasts16, .id = "Age") %>% 
+    mutate(Contrast = fct_inorder(Contrast),
+           Age = fct_relevel(Age, "8dpp")
+           )
+```
+
+```{r plotSummaryExp1}
+timeContrasts %>% 
+    filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
+    mutate(Direction = fct_relevel(ifelse(log2FoldChange > 0, "Up", "Down"), "Up")) %>%
+    group_by(Contrast, Age, Direction) %>% 
+    ggplot(aes(x = Direction, fill = Age)) + 
+    geom_bar(position = "dodge") +
+    geom_text(stat = 'count', aes(label = ..count..), vjust = -0.5, position = position_dodge(0.90)) +
+    # facet_wrap(~ Contrast) +
+    ylab("Number of DEGs") +
+    cowplot::theme_cowplot() +
+    theme(strip.text =         element_text(
+        colour = "grey10",
+        size = rel(0.8),
+        margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+        ), 
+        axis.line=element_line()) +
+    lemon::facet_rep_wrap(~ Contrast)
+```
+
+```{r goAllcoefsExp1}
+allGOres <- timeContrasts %>% 
+    filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
+    mutate(Direction = fct_relevel(ifelse(log2FoldChange > 0, "Up", "Down"), "Up")) %>%
+    group_by(Contrast, Age, Direction) %>% 
+    # filter(Age == "16dpp", Contrast == "T4 vs T0", Direction == "Up") %>%
+    do({tgd <- runTopGoAnalysis(DEgeneSet = .$geneid, 
+                                dds = dds_exp1, 
+                                GOdb = GOList, 
+                                onts = "BP", 
+                                nodeSize = 100)
+       exportGOtable(tgd, "Fisher.weight01", n = 500) %>% 
+           mutate(Fisher.weight01 = as.numeric(Fisher.weight01))
+           }
+       )
+```
+
+```{r GOTable, results='asis'}
+for (i in unique(allGOres$Contrast)) {
+print(
+kable(allGOres %>% 
+          filter(Contrast == i ) %>% 
+          top_n(n = 10, wt = dplyr::desc(Fisher.weight01)), digits = 20) %>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE, latex_options="scale_down") %>%
+    kableExtra::kable_styling(latex_options = c("striped", "HOLD_position")) 
+)
+}
+```
+
+```{r sharedGOT4}
+allGOres %>% 
+    filter(Contrast == "T4 vs T0") %>% 
+    top_n(n = 10, wt = dplyr::desc(Fisher.weight01)) %>%
+    pull(Term)
+          
+```
+
+```{r GOresultsHM, fig.width = 12, fig.height = 16}
+library(ggdendro)
+source("myheatmap.R")
+
+legend <- cowplot::get_legend(allGOres %>%
+                         ungroup() %>%
+                         filter(Fisher.weight01 < 0.01) %>%
+                         #separate(col = Contrast, into = c("Age", "Contrast", "Direction"), sep = "_", extra = "drop") %>%
+                         mutate(Term = factor(Term, unique(Term)),
+                                Contrast = paste(Age, Contrast, sep = "_")) %>%
+                         #mutate(Term = factor(Term,) %>%
+                         #mutate(Age = fct_relevel(Age, "P8")) %>%
+                         ggplot() +
+                         geom_tile(aes(
+                             x = Age,
+                             y = factor(str_trunc(as.character(Term), 40, "right")),
+                             fill = -(Fisher.weight01)
+                         )) +
+                         geom_vline(xintercept = 1.5, color = "grey92") +
+                         scale_y_discrete(position = "right") +
+                         scale_fill_gradient(name = "-log10(p-value)",
+                                             low = "#ffeda0", 
+                                             high = "#f03b20",
+                                             limits = c(1.30103, 25)) + 
+                         theme(legend.position = "bottom", text = element_text(size = 10)) 
+)
+
+### Plot all
+
+p1 <- myheatmap2(allGOres ,"Up", trim = 35, pval = 0.01)
+p2 <- myheatmap2(allGOres, "Down", trim = 35, pval = 0.01)
+
+pall <- cowplot::ggdraw(cowplot::plot_grid(
+    cowplot::plot_grid(
+        p1,
+        p2,
+        ncol = 2,
+        align = 'h',
+        rel_widths = c(1, 1),
+        labels = "auto"
+    ),
+    cowplot::plot_grid(
+        NULL,
+        legend,
+        NULL,
+        ncol = 3,
+        rel_widths = c(0.8, 0.2, 1)
+    ),
+    nrow = 2,
+    rel_heights = c(1, 0.1)
+))
+
+pall
+```
+
+```{r setupVenn}
+source("overLapper.R.txt") # Imports required functions.
+source(file = "plotellipse.R")
+```
+
+```{r T4venn}
+venninput <- timeContrasts %>% 
+    filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
+    filter(Contrast == "T4 vs T0") %>%
+    mutate(Direction = fct_relevel(ifelse(log2FoldChange > 0, "Up", "Down"), "Up")) %>%
+    group_by(Contrast, Age, Direction) %>%
+    do(data = (.$geneid)) %>% 
+    arrange(Direction, desc(Age)) %>%
+    with(set_names(data, paste(Contrast, Age, Direction)))
+
+
+OLlist <-
+    overLapper(setlist = venninput,
+               sep = "_",
+               type = "vennsets")
+
+counts <- list(sapply(OLlist$Venn_List, length))
+
+venndf <- data.frame(
+    count = as.vector(lengths(OLlist$Venn_List)),
+    y = c(4, 4, 3, 1, 4, 3, 1, 3, 1, 2, 3, 1, 2, 2, 2),
+    x = c(1, 3, 4, 4, 2, 1, 1, 3, 3, 4, 2, 2, 1, 3, 2)
+)
+
+#create venn ellipses
+ellipse1 <-
+    as.data.frame(
+        plotellipse(
+            center = c(2.6, 1.4),
+            radius = c(1.15, 2.25),
+            rotate = 90,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+ellipse2 <-
+    as.data.frame(
+        plotellipse(
+            center = c(2.5, 2.5),
+            radius = c(1.15, 2.25),
+            rotate = 90,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+ellipse3 <-
+    as.data.frame(
+        plotellipse(
+            center = c(2.5, 2.5),
+            radius = c(1.15, 2.25),
+            rotate = 0,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+ellipse4 <-
+    as.data.frame(
+        plotellipse(
+            center = c(1.4, 2.6),
+            radius = c(1.15, 2.25),
+            rotate = 0,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+
+library("sp")
+poly1 <- Polygon(ellipse1)
+poly2 <- Polygon(ellipse2)
+poly3 <- Polygon(ellipse3)
+poly4 <- Polygon(ellipse4)
+# create SpatialPolygons objects
+p1 <- SpatialPolygons(list(Polygons(list(poly1), "p1")))
+p2 <- SpatialPolygons(list(Polygons(list(poly2), "p2")))
+p3 <- SpatialPolygons(list(Polygons(list(poly3), "p3")))
+p4 <- SpatialPolygons(list(Polygons(list(poly4), "p4")))
+
+# highlight intersections
+library(rgeos)
+int1 <- gDifference(gDifference(gIntersection(p1, p4), p2), p3)
+highlight1<-as.data.frame(slot(int1@polygons[[1]]@Polygons[[1]], "coords"))
+highlight1$group <- "1"
+    
+int2 <- gDifference(gDifference(gIntersection(p2, p3), p1), p4)
+highlight2<-as.data.frame(slot(int2@polygons[[1]]@Polygons[[1]], "coords"))
+highlight2$group <- "1"
+
+int3 <- gDifference(gDifference(gIntersection(p1, p2), p3), p4)
+highlight3<-as.data.frame(slot(int3@polygons[[1]]@Polygons[[1]], "coords"))
+highlight3$group <- "2"
+
+int4 <- gDifference(gDifference(gIntersection(p3, p4), p1), p2)
+highlight4<-as.data.frame(slot(int4@polygons[[1]]@Polygons[[1]], "coords"))
+highlight4$group <- "2"
+
+highlights <- rbind(highlight1, highlight2, highlight3, highlight4)
+
+
+ellipses <- rbind(ellipse1, ellipse2, ellipse3, ellipse4)
+ellipses$contrast <-
+    as.factor(rep(
+        c(
+            "16dppT4vsT0_up",
+            "8dppT4vsT0_up",
+            "16dppT4vsT0_down",
+            "8dppT4vsT0_down"
+        ),
+        each = 361
+    ))
+vennlabels <-
+    data.frame(
+        contrast = factor(
+            c(
+                "16dpp_T4vsT0_up",
+                "8dpp_T4vsT0_up",
+                "16dpp_T4vsT0_down",
+                "8dpp_T4vsT0_down"
+            )
+        ),
+        x = c(-2.85, -2, 2, 2.85),
+        y = c(4.75, 5.5, 5.5, 4.75)
+    )
+
+ggplot(data = venndf,
+       aes(x = (x - y) / sqrt(2),
+           y = (y + x) / sqrt(2))) +
+    geom_path(data = ellipses,
+              aes(
+                  x = (V2 - V1) / sqrt(2),
+                  y = (V1 + V2) / sqrt(2),
+                  color = contrast
+              ),
+              size = 1) +
+    geom_polygon(data = highlights, 
+                 aes(x = (y - x) / sqrt(2), 
+                     y = (y + x) / sqrt(2),
+                     fill = group),
+                 alpha = 0.25
+    ) +
+    scale_color_manual(values = c("#e41a1c", "#377eb8", "#4daf4a", "#984ea3")) +
+    geom_text(
+        data = vennlabels,
+        aes(
+            x = x,
+            y = y,
+            label = gsub('_', '\n', contrast),
+            size = 1),
+        color = c("#377eb8", "#984ea3", "#e41a1c", "#4daf4a"),
+        size = 3,
+        fontface = "bold"
+    ) +
+    geom_text(
+        label = venndf$count,
+        nudge_y = -0.15,
+        color = "blue",
+        size = 2.5
+    ) +
+    theme_bw() +
+    theme(
+        legend.position = "none",
+        axis.line = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_blank(),
+        plot.margin = unit(c(1, 1, 0, 1), "lines")
+    ) +
+    xlim(c(-3.5, 3.5)) +
+    ylim(0, 6)
+```
+
+GO terms of uniquely upregulated genes in 16dpp at T4vsT0
+```{r goUniqueUp16T4}
+tgd <- runTopGoAnalysis(DEgeneSet = OLlist$Venn_List$`T4 vs T0 16dpp Up`, dds = dds_exp1, GOdb = GOList, onts = "BP", nodeSize = 100)
+kable(exportGOtable(tgd, "Fisher.weight01", n = 10) %>% 
+          mutate(Fisher.weight01 = as.numeric(Fisher.weight01)), digits = 20) %>%
+    kableExtra::kable_styling(latex_options = c("striped", "HOLD_position", "scale_down"), 
+                              full_width = FALSE)
+```
+
+GO terms of uniquely upregulated genes in 8dpp at T4vsT0
+```{r goUniqueUp8T4}
+tgd <- runTopGoAnalysis(DEgeneSet = OLlist$Venn_List$`T4 vs T0 8dpp Up`, dds = dds_exp1, GOdb = GOList, onts = "BP", nodeSize = 100)
+kable(exportGOtable(tgd, "Fisher.weight01", n = 10) %>% 
+          mutate(Fisher.weight01 = as.numeric(Fisher.weight01)), digits = 20) %>%
+    kableExtra::kable_styling(latex_options = c("striped", "HOLD_position", "scale_down"), 
+                              full_width = FALSE)
+```
+
+```{r T24venn}
+source("http://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/overLapper.R") # Imports required functions.
+
+venninput <- timeContrasts %>% 
+    filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
+    filter(Contrast == "T24 vs T4") %>%
+    mutate(Direction = fct_relevel(ifelse(log2FoldChange > 0, "Up", "Down"), "Up")) %>%
+    group_by(Contrast, Age, Direction) %>%
+    do(data = (.$geneid)) %>% 
+    arrange(Direction, desc(Age)) %>%
+    with(set_names(data, paste(Contrast, Age, Direction)))
+
+
+OLlist <-
+    overLapper(setlist = venninput,
+               sep = "_",
+               type = "vennsets")
+
+counts <- list(sapply(OLlist$Venn_List, length))
+
+venndf <- data.frame(
+    count = as.vector(lengths(OLlist$Venn_List)),
+    y = c(4, 4, 3, 1, 4, 3, 1, 3, 1, 2, 3, 1, 2, 2, 2),
+    x = c(1, 3, 4, 4, 2, 1, 1, 3, 3, 4, 2, 2, 1, 3, 2)
+)
+
+#create venn ellipses
+ellipse1 <-
+    as.data.frame(
+        plotellipse(
+            center = c(2.6, 1.4),
+            radius = c(1.15, 2.25),
+            rotate = 90,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+ellipse2 <-
+    as.data.frame(
+        plotellipse(
+            center = c(2.5, 2.5),
+            radius = c(1.15, 2.25),
+            rotate = 90,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+ellipse3 <-
+    as.data.frame(
+        plotellipse(
+            center = c(2.5, 2.5),
+            radius = c(1.15, 2.25),
+            rotate = 0,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+ellipse4 <-
+    as.data.frame(
+        plotellipse(
+            center = c(1.4, 2.6),
+            radius = c(1.15, 2.25),
+            rotate = 0,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+
+ellipses <- rbind(ellipse1, ellipse2, ellipse3, ellipse4)
+ellipses$contrast <-
+    as.factor(rep(
+        c(
+            "16dppT24vsT4_up",
+            "8dppT24vsT4_up",
+            "16dppT24vsT4_down",
+            "8dppT24vsT4_down"
+        ),
+        each = 361
+    ))
+vennlabels <-
+    data.frame(
+        contrast = factor(
+            c(
+                "16dpp_T24vsT4_up",
+                "8dpp_T24vsT4_up",
+                "16dpp_T24vsT4_down",
+                "8dpp_T24vsT4_down"
+            )
+        ),
+        x = c(-2.85, -2, 2, 2.85),
+        y = c(4.75, 5.5, 5.5, 4.75)
+    )
+
+ggplot(data = venndf,
+       aes(x = (x - y) / sqrt(2),
+           y = (y + x) / sqrt(2))) +
+    geom_path(data = ellipses,
+              aes(
+                  x = (V2 - V1) / sqrt(2),
+                  y = (V1 + V2) / sqrt(2),
+                  color = contrast
+              ),
+              size = 1) +
+    geom_polygon(data = highlights, 
+                 aes(x = (y - x) / sqrt(2), 
+                     y = (y + x) / sqrt(2),
+                     fill = group),
+                 alpha = 0.25
+    ) +
+    scale_color_manual(values = c("#e41a1c", "#377eb8", "#4daf4a", "#984ea3")) +
+    geom_text(
+        data = vennlabels,
+        aes(
+            x = x,
+            y = y,
+            label = gsub('_', '\n', contrast),
+            size = 1),
+        color = c("#377eb8", "#984ea3", "#e41a1c", "#4daf4a"),
+        size = 3,
+        fontface = "bold"
+    ) +
+    geom_text(
+        label = venndf$count,
+        nudge_y = -0.15,
+        color = "blue",
+        size = 2.5
+    ) +
+    theme_bw() +
+    theme(
+        legend.position = "none",
+        axis.line = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_blank(),
+        plot.margin = unit(c(1, 1, 0, 1), "lines")
+    ) +
+    xlim(c(-3.5, 3.5)) +
+    ylim(0, 6)
+
+```
+
+GO terms of inversely regulated genes at 24 hpi (Up 16 down 8dpp)
+```{r goUniqueUp16Dwn8T24}
+tgd <- runTopGoAnalysis(DEgeneSet = OLlist$Venn_List$`T24 vs T4 16dpp Up_T24 vs T4 8dpp Down`, dds = dds_exp1, GOdb = GOList, onts = "BP", nodeSize = 100)
+kable(exportGOtable(tgd, "Fisher.weight01", n = 10) %>% 
+          mutate(Fisher.weight01 = as.numeric(Fisher.weight01)), digits = 20) %>%
+    kableExtra::kable_styling(latex_options = c("striped", "HOLD_position", "scale_down"), 
+                              full_width = FALSE)
+```
+
+```{r T48venn}
+source("http://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/overLapper.R") # Imports required functions.
+
+venninput <- timeContrasts %>% 
+    filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
+    filter(Contrast == "T48 vs T24") %>%
+    mutate(Direction = fct_relevel(ifelse(log2FoldChange > 0, "Up", "Down"), "Up")) %>%
+    group_by(Contrast, Age, Direction) %>%
+    do(data = (.$geneid)) %>% 
+    arrange(Direction, desc(Age)) %>%
+    with(set_names(data, paste(Contrast, Age, Direction)))
+
+
+OLlist <-
+    overLapper(setlist = venninput,
+               sep = "_",
+               type = "vennsets")
+
+counts <- list(sapply(OLlist$Venn_List, length))
+
+venndf <- data.frame(
+    count = as.vector(lengths(OLlist$Venn_List)),
+    y = c(4, 4, 3, 1, 4, 3, 1, 3, 1, 2, 3, 1, 2, 2, 2),
+    x = c(1, 3, 4, 4, 2, 1, 1, 3, 3, 4, 2, 2, 1, 3, 2)
+)
+
+#create venn ellipses
+ellipse1 <-
+    as.data.frame(
+        plotellipse(
+            center = c(2.6, 1.4),
+            radius = c(1.15, 2.25),
+            rotate = 90,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+ellipse2 <-
+    as.data.frame(
+        plotellipse(
+            center = c(2.5, 2.5),
+            radius = c(1.15, 2.25),
+            rotate = 90,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+ellipse3 <-
+    as.data.frame(
+        plotellipse(
+            center = c(2.5, 2.5),
+            radius = c(1.15, 2.25),
+            rotate = 0,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+ellipse4 <-
+    as.data.frame(
+        plotellipse(
+            center = c(1.4, 2.6),
+            radius = c(1.15, 2.25),
+            rotate = 0,
+            segments = 360,
+            xlab = "",
+            ylab = "",
+            col = lines[1],
+            axes = FALSE,
+            main = mymain,
+            sub = mysub,
+            lwd = mylwd
+        )
+    )
+
+ellipses <- rbind(ellipse1, ellipse2, ellipse3, ellipse4)
+ellipses$contrast <-
+    as.factor(rep(
+        c(
+            "16dppT48vsT24_up",
+            "8dppT48vsT24_up",
+            "16dppT48vsT24_down",
+            "8dppT48vsT24_down"
+        ),
+        each = 361
+    ))
+vennlabels <-
+    data.frame(
+        contrast = factor(
+            c(
+                "16dpp_T48vsT24_up",
+                "8dpp_T48vsT24_up",
+                "16dpp_T48vsT24_down",
+                "8dpp_T48vsT24_down"
+            )
+        ),
+        x = c(-2.85, -2, 2, 2.85),
+        y = c(4.75, 5.5, 5.5, 4.75)
+    )
+
+ggplot(data = venndf,
+       aes(x = (x - y) / sqrt(2),
+           y = (y + x) / sqrt(2))) +
+    geom_path(data = ellipses,
+              aes(
+                  x = (V2 - V1) / sqrt(2),
+                  y = (V1 + V2) / sqrt(2),
+                  color = contrast
+              ),
+              size = 1) +
+    geom_polygon(data = highlights, 
+                 aes(x = (y - x) / sqrt(2), 
+                     y = (y + x) / sqrt(2),
+                     fill = group),
+                 alpha = 0.25
+    ) +
+    scale_color_manual(values = c("#e41a1c", "#377eb8", "#4daf4a", "#984ea3")) +
+    geom_text(
+        data = vennlabels,
+        aes(
+            x = x,
+            y = y,
+            label = gsub('_', '\n', contrast),
+            size = 1),
+        color = c("#377eb8", "#984ea3", "#e41a1c", "#4daf4a"),
+        size = 3,
+        fontface = "bold"
+    ) +
+    geom_text(
+        label = venndf$count,
+        nudge_y = -0.15,
+        color = "blue",
+        size = 2.5
+    ) +
+    theme_bw() +
+    theme(
+        legend.position = "none",
+        axis.line = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_blank(),
+        plot.margin = unit(c(1, 1, 0, 1), "lines")
+    ) +
+    xlim(c(-3.5, 3.5)) +
+    ylim(0, 6)
+```
+
+
+# Transciptome Experiment 2
+
+## QuantSeq 3' mRNA mapping pipeline 
+
+### Read cleanup and Quality control
+
+```{r prep, engine='bash', eval=FALSE}
+mkdir infection24_3prime
+cd infection24_3prime
+mkdir qualitycheck
+
+# To install multiQC we need to work with Anaconda python environment
+module load Anaconda2/4.2.0
+export PATH=$PATH:$HOME/anaconda2/bin
+conda create --name multiQC
+source activate multiQC
+
+# Install the multiQC package
+conda install -c bioconda multiqc
+source deactivate
+
+# QC before cleaning
+module load fastQC
+fastqc --outdir qualitycheck --format fastq --threads 8 *fastq.gz
+
+export PATH=$PATH:$HOME/anaconda2/bin
+source activate multiQC
+multiqc -o ~/infection24_3prime/ -n multiqc_raw ~/infection24_3prime/qualitycheck/
+source deactivate
+
+# Make a polyA fasta file for trimming
+printf '>\nAAAAAAAAAAAAAAAAAA' > polyA.fa
+gzip polyA.fa
+
+# Trim and clean reads with BBMap
+module load BBMap
+for sample in *fastq.gz; 
+do cat $sample | bbduk.sh in=stdin.fq.gz out=${sample}_trimmed_clean \
+ref=polyA.fa.gz,$ADAPTERS/TruSeq3-SE.fa \
+ftl=12 k=13 ktrim=r useshortkmers=t mink=5 qtrim=r trimq=10 minlength=20 int=f ;
+done
+
+# QC after trimming
+mkdir qc_trimmed_clean
+
+fastqc --outdir qc_trimmed_clean --format fastq --threads 8 *fastq.gz_trimmed_clean
+
+export PATH=$PATH:$HOME/anaconda2/bin
+source activate multiQC
+multiqc -o ~/infection24_3prime/ \
+-n multiqc_clean ~/infection24_3prime/qc_trimmed_clean/
+source deactivate
+```
+
+### Make extended transcriptome file
+
+Extract chromosome sizes:
+
+```{r dl_gff2bed, engine='bash', eval=FALSE}
+wget https://github.com/bedops/bedops/releases/download/v2.4.35/bedops_linux_x86_64-v2.4.35.tar.bz2
+tar jxvf bedops_linux_x86_64-v2.4.35.tar.bz2
+export PATH=$PATH:$HOME/bin
+
+cd ~/infectionRNAseq/genome/cl9930-v2
+gff2bed < cucumber_ChineseLong_v2.gff3 > cucumber_ChineseLong_v2.bed
+
+module load SAMtools
+cut -f 1,2 cucumber_ChineseLong_v2_genome.fa.fai > chrom.sizes
+```
+
+Transcript 3'UTR extension script in R:
+
+```{r extendUTRs, engine='R', eval = FALSE}
+gff <- read.delim('cucumber_ChineseLong_v2.gff3', header = FALSE, sep = '\t')
+chromSizes <- read.table(file = "chrom.sizes") %>% 
+  dplyr::rename(chrom = V1,
+         maxLength = V2)
+
+names(gff) <- c("chrom", "source", "feature", 
+                "start", "end", "score", 
+                "strand", "phase", "attr")
+
+gff <- gff %>%
+  mutate(parent = ifelse(str_detect(attr, "CsaUN"), 
+                         str_remove(str_extract(string = attr, 
+                                                pattern = "ID=CsaUNG[0-9]*"), 
+                                    pattern = "ID="),
+                         str_remove(str_extract(string = attr, 
+                                                pattern = "ID=Csa[0-9]G[0-9]*"), 
+                                    pattern = "ID=")
+                         )
+         )
+
+extend <- 1000
+gff_name <- paste0("cucumber_ChineseLong_v2_extended3UTR_", extend,".gff3")
+
+gff_new <- left_join(gff, chromSizes) %>%
+  group_by(parent, feature) %>%
+  mutate(id = row_number()) %>% # add id index for each feature
+  mutate(
+    sug_start = case_when(
+      feature %in% c("gene", "mRNA") &
+        strand == "-" ~ start - extend,
+      feature == "three_prime_utr" & 
+        id == max(id) & strand == "-" ~ start - extend, #use max id to get the last 3'UTR
+      feature == "exon" &
+        id == max(id) & strand == "-" ~ start - extend, #use max id to get the last exon,
+      TRUE ~ as.numeric(start)
+    )
+  ) %>%
+  mutate(
+    sug_end = case_when(
+      feature %in% c("gene", "mRNA") &
+        strand == "+" ~ end + extend,
+      feature == "three_prime_utr" & 
+        id == max(id) & strand == "+" ~ end + extend, #use max id to get the last 3'UTR
+      feature == "exon" &
+        id == max(id) & strand == "+" ~ end + extend, #use max id to get the last exon
+      TRUE ~ as.numeric(end)
+    )
+  )  %>%
+  ungroup() %>%
+  mutate(sug_start = as.integer(ifelse(sug_start <= 0, 1, sug_start)),  # limit on the left 
+         sug_end = as.integer(ifelse(sug_end > maxLength, maxLength, sug_end)) # limit on the right
+  )
+
+gff_new2 <- gff_new %>% # Find the distances between genes and the next start 
+  left_join(gff_new %>% # site on the same strand 
+              group_by(chrom, strand) %>% 
+              arrange(chrom, strand, start) %>%
+              filter(feature %in% c("gene")) %>% 
+              mutate(next_gene = ifelse(strand == "-", 
+                                         lag(end, 1),
+                                         lead(start, 1))
+              ) %>% mutate(next_gene = ifelse(is.na(next_gene),
+                                          ifelse(strand == "-", 0, maxLength + 1), 
+                                          next_gene))  
+            ) %>% 
+  group_by(chrom) %>%
+    fill(next_gene) %>% # Identify suggested start sites the overlap the next gene
+    mutate(
+    start_ext = case_when(
+      feature %in% c("gene", "mRNA") &
+        sug_start <= next_gene & strand == "-" ~ next_gene + 1,
+      feature == "three_prime_utr" & 
+        id == max(id) & sug_start <= next_gene & strand == "-" ~ next_gene + 1, #use max id to get the last 3'UTR
+      feature == "exon" &
+        id == max(id) & sug_start <= next_gene & strand == "-" ~ next_gene + 1, #use max id to get the last exon,
+      TRUE ~ as.numeric(sug_start)
+    )
+  ) %>%
+  mutate(
+    end_ext = case_when(
+      feature %in% c("gene", "mRNA") &
+        sug_end >= next_gene & strand == "+" ~ next_gene - 1,
+      feature == "three_prime_utr" & 
+        id == max(id) & sug_end >= next_gene & strand == "+" ~ next_gene - 1, #use max id to get the last 3'UTR
+      feature == "exon" &
+        id == max(id) & sug_end >= next_gene & strand == "+" ~ next_gene - 1, #use max id to get the last exon
+      TRUE ~ as.numeric(sug_end)
+    )
+  ) %>%
+  ungroup() %>%
+  mutate(start_ext = as.integer(ifelse(start_ext <= 0, 1, start_ext)),  # limit on the left 
+         end_ext = as.integer(ifelse(end_ext > maxLength, maxLength, end_ext)) # limit on the right
+  ) %>% 
+  mutate(delta = (end_ext - start_ext) - (end - start)) %>% # check the difference before and after extension
+  mutate(final_start = ifelse(delta < 0, start, start_ext),
+         final_end = ifelse(delta < 0, end, end_ext),
+         final_delta = (final_end - final_start) - (end - start))
+
+gff_new2 %>%
+  filter(feature == "gene") %>%
+  ggplot() +
+  geom_density(aes(x = final_delta))
+
+gff_out <- gff_new2 %>%
+  mutate(start = final_start, 
+         end = final_end
+         ) %>%
+  dplyr::select(-parent, -id, -maxLength, 
+         -sug_start, -sug_end, -start_ext, 
+         -end_ext, -final_start, -final_end, 
+         -delta, -final_delta, -next_gene
+         )
+
+write_delim(gff_out,
+            path = gff_name, 
+            delim = "\t", 
+            col_names = FALSE)
+```
+
+Use cufflinks gffread to output a fasta file based on the new gff3 file:
+
+```{r newindex, eval = FALSE, engine='bash'}
+module load Cufflinks/2.2.1
+gffread -g ../genome/cl9930-v2/cucumber_ChineseLong_v2_genome.fa -w cucumber_ChineseLong_v2_cdna_extended3UTR_1000.fa cucumber_ChineseLong_v2_extended3UTR_1000.gff3
+```
+
+### Salmon mapping
+
+```{r sal_install, engine='bash', eval=FALSE}
+wget https://github.com/COMBINE-lab/salmon/releases/download/v0.12.0/salmon-0.12.0_linux_x86_64.tar.gz
+tar xvfz salmon-0.12.0_linux_x86_64.tar.gz
+
+SALMON=/mnt/home/mansfeld/salmon-0.12.0_linux_x86_64/bin
+
+# Index transcriptome
+$SALMON/salmon index -t cucumber_ChineseLong_v2_cdna_extended3UTR_1000.fa -i cucumber_ChineseLong_v2_cdna_extended3UTR_1000_salmon_index
+
+# Perform the mapping using Salmon
+mkdir quants_1000
+
+for fn in `ls clean_reads/*fastq`;
+do
+nodir=${fn#clean_reads/}
+echo "Processing sample ${nodir}"
+$SALMON/salmon quant -i cucumber_ChineseLong_v2_cdna_extended3UTR_1000_salmon_index \
+    -l SF \
+    -r ${fn} \
+    -p 16 \
+    -o quants_1000/${nodir%_S*}_quant \
+    --noLengthCorrection \
+    --validateMappings;
+done
+```
+
+## Differential expression pipeline
+
+### Import data using tximport
+
+```{r allsamples}
+dirs <- list.files("./quants_1000")
+samples <- as_tibble(stringr::str_split(dirs, pattern = "\\.", n = 2, simplify = T)[, 1]) %>%
+  separate(col = value, into = c("well", "age", "timepoint", "treatment", "rep"), sep = "_", remove = FALSE, extra = "drop") %>%
+  dplyr::rename(name = value) %>%
+  mutate(directory = dirs)
+
+# duplicate the controll T0 samples to have Inoc T0 for statistical purposes 
+fake_inocT0 <- samples %>% 
+  filter(timepoint == "T0") %>%
+  mutate(treatment = "Inoc",
+         name = str_replace(name, "Cont", "InocFake"))
+
+samples <- bind_rows(samples, fake_inocT0)
+
+files <- file.path("quants_1000", samples$directory, "quant.sf")
+names(files) <- samples$name
+
+samples <- samples %>%
+  mutate(
+  timepoint = fct_relevel(timepoint, "T0", "T2", "T4", "T8", "T12", "T18", "T24"),
+  age = fct_relevel(age, "8dpp"),
+  treatment = fct_relevel(samples$treatment, "Cont"),
+  condition = as_factor(
+  paste0(samples$age, "_", samples$timepoint, "_", samples$treatment)
+  ),
+  condition = fct_relevel(
+  condition,
+  "8dpp_T0_Cont",
+  "8dpp_T2_Cont",
+  "8dpp_T4_Cont",
+  "8dpp_T8_Cont",
+  "8dpp_T12_Cont",
+  "8dpp_T18_Cont",
+  "8dpp_T24_Cont",
+  "16dpp_T0_Cont",
+  "16dpp_T2_Cont",
+  "16dpp_T4_Cont",
+  "16dpp_T8_Cont",
+  "16dpp_T12_Cont",
+  "16dpp_T18_Cont",
+  "16dpp_T24_Cont",
+  "8dpp_T0_Inoc",
+  "8dpp_T2_Inoc",
+  "8dpp_T4_Inoc",
+  "8dpp_T8_Inoc",
+  "8dpp_T12_Inoc",
+  "8dpp_T18_Inoc",
+  "8dpp_T24_Inoc",
+  "16dpp_T0_Inoc",
+  "16dpp_T2_Inoc",
+  "16dpp_T4_Inoc",
+  "16dpp_T8_Inoc",
+  "16dpp_T12_Inoc",
+  "16dpp_T18_Inoc",
+  "16dpp_T24_Inoc"
+  )
+  )
+
+# make tx2gene file
+tx2gene <- read.table(file = files[1], sep = "\t", header = TRUE)
+tx2gene <- tx2gene[1]
+tx2gene$geneid <- str_replace(tx2gene$Name, pattern = "\\..*", replacement = "")
+
+txiAll <- tximport(files, type = "salmon", tx2gene = tx2gene, dropInfReps = TRUE, countsFromAbundance = "no")
+
+ddsTxiAll <- DESeqDataSetFromMatrix(round(txiAll$counts), colData = samples, design = ~ condition)
+
+# Hist of total reads per gene
+tibble(totalReads = rowSums(counts(ddsTxiAll))) %>%
+ggplot() +
+  geom_histogram(aes(x = totalReads), binwidth = 50) +
+  xlim(0,500)
+
+# as_tibble(counts(ddsTxiAll)) %>%
+#   mutate(gene = rownames(ddsTxiAll)) %>%
+#   gather(key = "sample", value = "count", -gene) %>%
+#   mutate(age = rep(ddsTxiAll$age, each = nrow(ddsTxiAll)),
+#          timepoint = rep(ddsTxiAll$timepoint, each = nrow(ddsTxiAll)),
+#          treatment = rep(ddsTxiAll$treatment, each = nrow(ddsTxiAll)),
+#            ) %>%
+#   group_by(gene, age, timepoint, treatment) %>%
+#   summarise(mean(count))
+
+# filter low expression genes: genes were 75 samples have less than 5 reads
+ddsTxiAll_filt <- ddsTxiAll[rowSums(counts(ddsTxiAll) <= 5) < 75, ]
+```
+
+Reads mapping stats
+
+```{r mappingStats}
+# Import JSON files for sample read mapping results
+
+jsons <- file.path("quants_1000", samples$directory, "aux_info", "meta_info.json")
+samples$totalReads <- sapply(jsons, FUN = function(x) {
+    fromJSON(file = x)$num_processed
+})
+
+samples$Mapped <- sapply(jsons, FUN = function(x) {
+    fromJSON(file = x)$num_mapped
+})
+```
+
+```{r expdes, fig.height=6, fig.width=10}
+expDesign <- samples %>% 
+    group_by(age, timepoint, treatment) %>% summarise(Reps = n())
+
+knitr::kable(as.data.frame(expDesign), caption = "The experimental design") %>%
+    kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+samples %>%
+    mutate(sampleName = name,
+           Unmapped = totalReads - Mapped) %>%
+    arrange(age, timepoint) %>%
+    mutate(sampleName = fct_inorder(sampleName)) %>%
+    gather(key = "Reads", value = "Count", -directory, -age, -timepoint, -condition, -sampleName, -totalReads, -name, -well, -treatment, -rep) %>%
+    ggplot(aes(x = sampleName, y = Count, fill = Reads,label = paste0(round(Count / totalReads * 100, digits = 1), "%"))) +
+    geom_bar(stat = "identity", position = "stack") + 
+    geom_text(size = 2, stat = "identity", position = "stack", hjust = 0.5) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+# remove samples with less than 1M reads
+
+ddsTxiAll_filt <- ddsTxiAll_filt[, samples$totalReads > 1e6]
+
+# average reads mapping
+
+samples %>%
+  filter(totalReads > 1e6) %>%
+  summarize(avgReadMapping = mean(Mapped / totalReads))
+```
+
+### DESeq2 analysis
+
+```{r runDESeq2}
+dds <- DESeq(ddsTxiAll_filt)
+
+save(dds, file = "infectionTC_8vs16_ContvsInoc_dds.RData")
+```
+
+Principal component analysis
+
+```{r pca}
+vst <- vst(dds, blind = TRUE)
+
+pcaData <- plotPCA(vst, returnData=TRUE, ntop = 500)
+
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pcaData <- pcaData %>% 
+    mutate(Age = vst$age,
+           Timepoint = vst$timepoint,
+           Treatment = vst$treatment)
+
+ggplot(pcaData, aes(PC1, PC2, color = Timepoint, shape = Age)) +
+    geom_point(size = 4, stroke = 2) +
+    geom_point(aes(alpha = Treatment, fill = Timepoint), size = 5, stroke = 0) +
+    scale_shape_manual(values = c(21, 24, 21, 24)) +
+    scale_alpha_manual(values=c(0.05, 1, 0.05, 1)) +
+    xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+    ylab(paste0("PC2: ",percentVar[2],"% variance")) +
+    geom_point(data = filter(pcaData, Timepoint == "T0"), 
+               aes(x = PC1, y = PC2, shape = Timepoint), 
+               color = "black", 
+               shape = 8,
+               size = 2) +
+    cowplot::theme_cowplot() +
+    theme(strip.text =         element_text(
+        colour = "grey10",
+        size = rel(0.8),
+        margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+        )) + 
+    guides(
+    shape = guide_legend(order = 1),
+    fill = guide_legend(order = 0)
+  ) +
+  scale_color_viridis_d(direction = -1) +
+  scale_fill_viridis_d(direction = -1)
+```
+
+Differential expression contrast results
+
+```{r DEres, eval=TRUE, include=TRUE}
+
+IvsC_T2_8dpp <- lfcShrink(dds, contrast = c("condition", "8dpp_T2_Inoc", "8dpp_T2_Cont"))
+IvsC_T4_8dpp <- lfcShrink(dds, contrast = c("condition", "8dpp_T4_Inoc", "8dpp_T4_Cont"))
+IvsC_T8_8dpp <- lfcShrink(dds, contrast = c("condition", "8dpp_T8_Inoc", "8dpp_T8_Cont"))
+IvsC_T12_8dpp <- lfcShrink(dds, contrast = c("condition", "8dpp_T12_Inoc", "8dpp_T12_Cont"))
+IvsC_T18_8dpp <- lfcShrink(dds, contrast = c("condition", "8dpp_T18_Inoc", "8dpp_T18_Cont"))
+IvsC_T24_8dpp <- lfcShrink(dds, contrast = c("condition", "8dpp_T24_Inoc", "8dpp_T24_Cont"))
+
+IvsC_T2_16dpp <- lfcShrink(dds, contrast = c("condition", "16dpp_T2_Inoc", "16dpp_T2_Cont"))
+IvsC_T4_16dpp <- lfcShrink(dds, contrast = c("condition", "16dpp_T4_Inoc", "16dpp_T4_Cont"))
+IvsC_T8_16dpp <- lfcShrink(dds, contrast = c("condition", "16dpp_T8_Inoc", "16dpp_T8_Cont"))
+IvsC_T12_16dpp <- lfcShrink(dds, contrast = c("condition", "16dpp_T12_Inoc", "16dpp_T12_Cont"))
+IvsC_T18_16dpp <- lfcShrink(dds, contrast = c("condition", "16dpp_T18_Inoc", "16dpp_T18_Cont"))
+IvsC_T24_16dpp <- lfcShrink(dds, contrast = c("condition", "16dpp_T24_Inoc", "16dpp_T24_Cont"))
+
+timeContrasts <-
+  bind_rows(
+  "IvsC_T2_8dpp" = as.data.frame(IvsC_T2_8dpp),
+  "IvsC_T4_8dpp" = as.data.frame(IvsC_T4_8dpp),
+  "IvsC_T8_8dpp" = as.data.frame(IvsC_T8_8dpp),
+  "IvsC_T12_8dpp" = as.data.frame(IvsC_T12_8dpp),
+  "IvsC_T18_8dpp" = as.data.frame(IvsC_T18_8dpp),
+  "IvsC_T24_8dpp" = as.data.frame(IvsC_T24_8dpp),
+  "IvsC_T2_16dpp" = as.data.frame(IvsC_T2_16dpp),
+  "IvsC_T4_16dpp" = as.data.frame(IvsC_T4_16dpp),
+  "IvsC_T8_16dpp" = as.data.frame(IvsC_T8_16dpp),
+  "IvsC_T12_16dpp" = as.data.frame(IvsC_T12_16dpp),
+  "IvsC_T18_16dpp" = as.data.frame(IvsC_T18_16dpp),
+  "IvsC_T24_16dpp" = as.data.frame(IvsC_T24_16dpp)
+  , .id = "Contrast") %>% 
+  mutate(geneid = rep(rownames(dds), 12))
+```
+
+Alluvial plots for all DE genes
+
+```{r plotAlluvial, fig.height=6, fig.width=9}
+lodesTC <- timeContrasts %>%
+    #filter(!is.na(padj)) %>%
+    mutate(Direction = case_when(
+        padj < 0.05 & log2FoldChange >= 1 ~ "Up",
+        padj < 0.05 & log2FoldChange <= -1 ~ "Down",
+        TRUE ~ "notDE"
+    )) %>%
+    mutate(Direction = fct_relevel(Direction, "Down", "Up", "notDE"),
+           Age = str_extract(Contrast, "[0-9]*dpp"),
+           Contrast = str_remove(Contrast, "_[0-9]*dpp")) %>%
+    mutate(Contrast = fct_inorder(Contrast),
+           Age = fct_relevel(Age, "8dpp")
+    ) %>% 
+    dplyr::select(geneid, Direction, Contrast, Age) %>% 
+    group_by(geneid, Age) %>% 
+    filter(sum(as.numeric(Direction)) < 18) %>% # because as.numeric('notDE') = 3 
+    summarise(flow = paste0(Direction, collapse = "_")) %>%
+    group_by(Age, flow) %>%
+    summarise(freq = n()) %>% 
+    separate(col = flow, into = c("T2", "T4", "T8", "T12", "T18", "T24")) %>% 
+    mutate(first = T4, second = T8, third = T12, forth = T18, fifth = T24, sixth = T24) %>%
+    to_lodes_form(key = "Contrast", axes = 2:7) %>% 
+    mutate(diffExp = fct_relevel(stratum, "Up", "notDE")) %>%
+    mutate(flowColor = case_when(
+      Contrast == "T2" ~ first,
+      Contrast == "T4" ~ second,
+      Contrast == "T8" ~ third,
+      Contrast == "T12" ~ forth,
+      Contrast == "T18" ~ fifth,
+      Contrast == "T24" ~ sixth
+    )) %>% 
+  group_by(Age, Contrast, diffExp) %>% 
+  mutate(stratumSize = sum(freq),
+         number = stratumSize/ n())
+
+lodesTC%>%
+    ggplot(
+        aes(
+            x = Contrast,
+            stratum = diffExp,
+            alluvium = alluvium,
+            y = freq,
+            fill = diffExp,
+            label = freq
+        )
+    ) +
+    geom_flow(
+        aes(fill = as.factor(flowColor)),
+        stat = "alluvium",
+        alpha = 0.75,
+        size = 0.5
+    ) +
+    geom_stratum(width = 0.5) +
+    geom_text(aes(label = ifelse(stratumSize > 100, number, NA)), 
+              stat = "stratum", 
+              size = 3, 
+              position = position_nudge(y = 0)) +
+    labs(x = "Timepoint vs. Control", y = "Number of genes") +
+    scale_fill_brewer(type = "qual", palette = "Set1", name = "Differential expression") +
+    ggrepel::geom_text_repel(stat = "stratum", 
+                             size = 3, 
+                             nudge_y = 100,
+                             aes(label = ifelse(stratumSize <= 100, number,NA))) +
+    #scale_color_brewer(type = "diver", palette = "Set1") +
+    cowplot::theme_cowplot() +
+    theme(strip.text =         element_text(
+        colour = "grey10",
+        size = rel(0.8),
+        margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+        ), 
+        legend.position = "bottom") +
+    lemon::facet_rep_wrap(~ Age)
+```
+
+## Weighted gene co-expression analysis
+
+Just as a check we will compare the experiments using pca
+```{r compareExp}
+vst_48hrs <- vst(dds_exp1, blind = TRUE)
+vst_48hrs <- vst_48hrs[, vst_48hrs$timepoint != "T48"]
+
+vst_filt <- vst[, vst$timepoint %in% c("T0", "T4", "T24")]
+
+vst_48hrs <- vst_48hrs[rownames(vst_48hrs) %in% rownames(vst_filt), ]
+vst_filt <- vst_filt[rownames(vst_filt) %in% rownames(vst_48hrs), ]
+
+vst_48hrs_8dpp <- vst_48hrs[, vst_48hrs$age == "8dpp"]
+vst_48hrs_16dpp <- vst_48hrs[, vst_48hrs$age == "16dpp"]
+
+
+vst_filt_8dpp <- vst_filt[, vst_filt$age == "8dpp" & vst_filt$treatment == "Inoc"]
+vst_filt_16dpp <- vst_filt[, vst_filt$age == "16dpp" & vst_filt$treatment == "Inoc"]
+
+both_8dpp <- cbind(assay(vst_filt_8dpp), assay(vst_48hrs_8dpp))
+both_16dpp <- cbind(assay(vst_filt_16dpp), assay(vst_48hrs_16dpp))
+bothAges <- cbind(both_8dpp, both_16dpp)
+
+as.data.frame(prcomp(t(both_8dpp))$x) %>%
+  mutate(sample = rownames(.),
+         timepoint = fct_relevel(str_extract(sample, pattern = "T[0-9]*"), "T24", after = Inf),
+         exp = c(rep("1", 9), rep("2", 9))) %>%
+  ggplot(aes(x = PC2, y = PC3)) + geom_point(aes(color = timepoint, shape = exp))
+
+as.data.frame(prcomp(t(both_16dpp))$x) %>%
+  mutate(sample = rownames(.),
+         timepoint = fct_relevel(str_extract(sample, pattern = "T[0-9]*"), "T24", after = Inf),
+         exp = c(rep("1", 9), rep("2", 9))) %>%
+  ggplot(aes(x = PC2, y = PC3)) + geom_point(aes(color = timepoint, shape = exp))
+
+as.data.frame(prcomp(t(bothAges))$x) %>%
+  mutate(sample = rownames(.),
+         timepoint = fct_relevel(str_extract(sample, pattern = "T[0-9]*"), "T24", after = Inf),
+         exp = c(rep(c("1", "2"), each = 9), rep(c("1", "2"), each = 9)),
+         age = rep(c("8dpp", "16dpp"), each = 18)
+           ) %>%
+  ggplot(aes(x = PC2, y = PC3)) + 
+      geom_point(aes(color = timepoint, shape = exp, size = age)) +
+      scale_size_manual(values = c(1,3)) +
+    cowplot::theme_cowplot() +
+    theme(strip.text =         element_text(
+        colour = "grey10",
+        size = rel(0.8),
+        margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+        ))
+```
+
+We then separate the samples in to the relevant networks
+
+```{r prepnetworks}
+# row variance for all inoculated samples
+# rv16 <- rowVars(assay(vst)[, vst$treatment == "Inoc" & vst$age == "16dpp"])
+# rv8 <- rowVars(assay(vst)[, vst$treatment == "Inoc" & vst$age == "8dpp"])
+# 
+# 
+# # select the 5000 genes by variance
+# top <- 5000
+# 
+# select16 <- order(rv16, decreasing=TRUE)[seq_len(min(top, length(rv16)))]
+# select8 <- order(rv8, decreasing=TRUE)[seq_len(min(top, length(rv8)))]
+# 
+# select_union <- union(select16, select8)
+select_union <- rownames(vst) ### ALL GENES ###
+
+topVar_16dpp <- assay(vst)[select_union, vst$treatment == "Inoc" & vst$age == "16dpp"]
+
+topVar_8dpp <- assay(vst)[select_union, vst$treatment == "Inoc" & vst$age == "8dpp"]
+
+
+infection8dpp <- t(topVar_8dpp)
+infection16dpp <- t(topVar_16dpp)
+
+control16dpp <- t(assay(vst)[, vst$treatment == "Cont" & vst$age == "16dpp"])
+control8dpp <- t(assay(vst)[, vst$treatment == "Cont" & vst$age == "8dpp"])
+```
