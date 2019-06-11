@@ -1753,3 +1753,10 @@ adjacency8 <-
   corOptions = "maxPOutliers = 0.1"
   )
 ```
+
+We then take the adjacency matrix and calculate the Topological Overlap Matrix 
+```{r TOM, cache.lazy=FALSE}
+# TOMType doesn't matter in signed networks
+dissTOM16 <- 1 - TOMsimilarity(adjacency16, TOMType = "unsigned")
+dissTOM8 <- 1 - TOMsimilarity(adjacency8, TOMType = "unsigned")
+```
