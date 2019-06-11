@@ -1697,3 +1697,59 @@ plot(sampleTree8, main = "Sample clustering to detect outliers 8dpp", sub="", xl
      cex.axis = 1.5, cex.main = 2)
 ```
 
+
+Calculate scale free topology to try to choose the best power for adjacency calculation
+We are using signed networks and the bicor correlation function.
+```{r idPowers, message=FALSE, warning=FALSE}
+# Choose a set of soft-thresholding powers
+powers <- c(c(1:10), seq(from = 12, to=30, by=2))
+# Call the network topology analysis function
+sft16 <-
+  pickSoftThreshold(
+    infection16dpp,
+    powerVector = powers,
+    verbose = 0,
+    networkType = "signed",
+    corFnc = "bicor", 
+    corOptions = "maxPOutliers = 0.1"
+  )
+
+sft8 <-
+  pickSoftThreshold(
+  infection8dpp,
+  powerVector = powers,
+  verbose = 0,
+  networkType = "signed",
+  corFnc = "bicor",
+  corOptions = "maxPOutliers = 0.1"
+  )
+
+bind_rows("16dpp" = sft16$fitIndices, "8dpp" = sft8$fitIndices, .id = "network") %>%
+ggplot() + 
+  geom_text(aes(x = Power, y = -sign(slope) * SFT.R.sq, label = Power, color = network)) +
+  geom_abline(intercept = 0.8, slope = 0, color = "red") +
+  ylab("Scale Free Topology Model Fit,signed R^2")
+```
+
+We choose 12 as a power because the both networks reach a scale free topology R^2 fit of greater than 0.8
+```{r adjacency, message=FALSE, warning=FALSE, cache.lazy=FALSE}
+# calculate adjacency matrix using bicor
+softPower <- 12; 
+adjacency16 <-
+  adjacency(
+  infection16dpp,
+  power = softPower,
+  type = "signed",
+  corFnc = "bicor",
+  corOptions = "maxPOutliers = 0.1"
+  )
+  
+adjacency8 <-
+  adjacency(
+  infection8dpp,
+  power = softPower,
+  type = "signed",
+  corFnc = "bicor",
+  corOptions = "maxPOutliers = 0.1"
+  )
+```
