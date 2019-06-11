@@ -1686,3 +1686,14 @@ outgroups to the whole set.
 sampleTree16 <- hclust(dist(infection16dpp), method = "average")
 sampleTree8 <- hclust(dist(infection8dpp), method = "average")
 ```
+
+```{r plotSamplesDendro}
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree16, main = "Sample clustering to detect outliers 16dpp", sub="", xlab="", cex.lab = 1.5,
+     cex.axis = 1.5, cex.main = 2)
+
+plot(sampleTree8, main = "Sample clustering to detect outliers 8dpp", sub="", xlab="", cex.lab = 1.5,
+     cex.axis = 1.5, cex.main = 2)
+```
+
