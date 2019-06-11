@@ -1609,18 +1609,6 @@ as.data.frame(prcomp(t(bothAges))$x) %>%
 We then separate the samples in to the relevant networks
 
 ```{r prepnetworks}
-# row variance for all inoculated samples
-# rv16 <- rowVars(assay(vst)[, vst$treatment == "Inoc" & vst$age == "16dpp"])
-# rv8 <- rowVars(assay(vst)[, vst$treatment == "Inoc" & vst$age == "8dpp"])
-# 
-# 
-# # select the 5000 genes by variance
-# top <- 5000
-# 
-# select16 <- order(rv16, decreasing=TRUE)[seq_len(min(top, length(rv16)))]
-# select8 <- order(rv8, decreasing=TRUE)[seq_len(min(top, length(rv8)))]
-# 
-# select_union <- union(select16, select8)
 select_union <- rownames(vst) ### ALL GENES ###
 
 topVar_16dpp <- assay(vst)[select_union, vst$treatment == "Inoc" & vst$age == "16dpp"]
@@ -1633,4 +1621,68 @@ infection16dpp <- t(topVar_16dpp)
 
 control16dpp <- t(assay(vst)[, vst$treatment == "Cont" & vst$age == "16dpp"])
 control8dpp <- t(assay(vst)[, vst$treatment == "Cont" & vst$age == "8dpp"])
+```
+
+
+Checking and filtering genes and samples based on WGCNA guidlines
+```{r wgcna_filt}
+gsg <- goodSamplesGenes(infection16dpp, verbose = 3)
+
+gsg$allOK
+
+if (!gsg$allOK)
+{
+# Optionally, print the gene and sample names that were removed:
+if (sum(!gsg$goodGenes) > 0)
+printFlush(paste("Removing genes:", 
+                 paste(colnames(infection16dpp)[!gsg$goodGenes], collapse = ", ")))
+
+if (sum(!gsg$goodSamples) > 0)
+printFlush(paste("Removing samples:", 
+                 paste(rownames(infection16dpp)[!gsg$goodSamples], collapse = ", ")))
+
+# Remove the offending genes and samples from the data:
+infection16dpp <- infection16dpp[gsg$goodSamples, gsg$goodGenes]
+}
+
+gsg <- goodSamplesGenes(infection8dpp, verbose = 3)
+
+gsg$allOK
+
+if (!gsg$allOK)
+{
+# Optionally, print the gene and sample names that were removed:
+if (sum(!gsg$goodGenes) > 0)
+printFlush(paste("Removing genes:", 
+                 paste(colnames(infection8dpp)[!gsg$goodGenes], collapse = ", ")))
+
+if (sum(!gsg$goodSamples) > 0)
+printFlush(paste("Removing samples:", 
+                 paste(rownames(infection8dpp)[!gsg$goodSamples], collapse = ", ")))
+
+# Remove the offending genes and samples from the data:
+infection8dpp <- infection8dpp[gsg$goodSamples, gsg$goodGenes]
+}
+
+if (!identical(colnames(infection16dpp), colnames(infection8dpp))) {
+  message("Genes not identical")
+  message(paste("Removing genes from 16dpp:", 
+                paste(colnames(infection16dpp)[!colnames(infection16dpp) %in% colnames(infection8dpp)], 
+                      collapse = ", ")))
+  infection16dpp <- infection16dpp[, colnames(infection16dpp) %in% colnames(infection8dpp)]
+  message(paste("Removing genes from 8dpp:", 
+                paste(colnames(infection16dpp)[!colnames(infection8dpp) %in% colnames(infection16dpp)], 
+                      collapse = ", ")))
+  infection8dpp <- infection8dpp[, colnames(infection8dpp) %in% colnames(infection16dpp)]
+} else {
+message("Treatments have same genes")
+}
+```
+
+Plotting sample dendrograms to identify if there are outlier samples that act as
+outgroups to the whole set.
+```{r samplesDendro}
+## Plot the sample dendros
+sampleTree16 <- hclust(dist(infection16dpp), method = "average")
+sampleTree8 <- hclust(dist(infection8dpp), method = "average")
 ```
