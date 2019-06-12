@@ -1814,3 +1814,164 @@ MEs8 <- MEList8$eigengenes
 MEDiss16 <- 1-cor(MEs16)
 MEDiss8 <- 1-cor(MEs8)
 ```
+
+
+Let's merge at three different thresholds 
+```{r MEmerge16}
+# Cluster module eigengenes
+METree16 <- hclust(as.dist(MEDiss16), method = "average");
+# Plot the result
+
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(METree16, main = "Clustering of module eigengenes",
+     xlab = "", sub = "")
+abline(h=0.15, col = "red")
+abline(h=0.20, col = "blue")
+abline(h=0.25, col = "green")
+abline(h=0.30, col = "purple")
+
+## find a good merge
+
+MEDissThres <- 0.15
+# Call an automatic merging function
+merge16.15 <-
+mergeCloseModules(infection16dpp,
+dynamicColors16,
+cutHeight = MEDissThres,
+verbose = 0)
+# The merged module colors
+merged16Colors.15 <- merge16.15$colors
+
+# Eigengenes of the new merged modules:
+merged16MEs.15 <- merge16.15$newMEs
+
+
+MEDissThres <- 0.20
+# Call an automatic merging function
+merge16.20 <-
+mergeCloseModules(infection16dpp,
+dynamicColors16,
+cutHeight = MEDissThres,
+verbose = 0)
+# The merged module colors
+merged16Colors.20 <- merge16.20$colors
+
+# Eigengenes of the new merged modules:
+merged16MEs.20 <- merge16.20$newMEs
+
+MEDissThres <- 0.25
+# Call an automatic merging function
+merge16.25 <-
+mergeCloseModules(infection16dpp,
+dynamicColors16,
+cutHeight = MEDissThres,
+verbose = 0)
+# The merged module colors
+merged16Colors.25 <- merge16.25$colors
+
+# Eigengenes of the new merged modules:
+merged16MEs.25 <- merge16.25$newMEs
+
+MEDissThres <- 0.30
+# Call an automatic merging function
+merge16.30 <-
+mergeCloseModules(infection16dpp,
+dynamicColors16,
+cutHeight = MEDissThres,
+verbose = 0)
+# The merged module colors
+merged16Colors.30 <- merge16.30$colors
+
+# Eigengenes of the new merged modules:
+merged16MEs.30 <- merge16.30$newMEs
+```
+
+And the same for the 8dpp network
+```{r MEmerge8}
+# Cluster module eigengenes
+METree8 <- hclust(as.dist(MEDiss8), method = "average");
+# Plot the result
+
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(METree8, main = "Clustering of module eigengenes",
+     xlab = "", sub = "")
+abline(h=0.15, col = "red")
+abline(h=0.20, col = "blue")
+abline(h=0.25, col = "green")
+abline(h=0.30, col = "purple")
+
+## find a good merge
+
+MEDissThres <- 0.15
+# Call an automatic merging function
+merge8.15 <-
+mergeCloseModules(infection8dpp,
+dynamicColors8,
+cutHeight = MEDissThres,
+verbose = 0)
+# The merged module colors
+merged8Colors.15 <- merge8.15$colors
+
+# Eigengenes of the new merged modules:
+merged8MEs.15 <- merge8.15$newMEs
+
+
+MEDissThres <- 0.20
+# Call an automatic merging function
+merge8.20 <-
+mergeCloseModules(infection8dpp,
+dynamicColors8,
+cutHeight = MEDissThres,
+verbose = 0)
+# The merged module colors
+merged8Colors.20 <- merge8.20$colors
+
+# Eigengenes of the new merged modules:
+merged8MEs.20 <- merge8.20$newMEs
+
+MEDissThres <- 0.25
+# Call an automatic merging function
+merge8.25 <-
+mergeCloseModules(infection8dpp,
+dynamicColors8,
+cutHeight = MEDissThres,
+verbose = 0)
+# The merged module colors
+merged8Colors.25 <- merge8.25$colors
+
+# Eigengenes of the new merged modules:
+merged8MEs.25 <- merge8.25$newMEs
+
+MEDissThres <- 0.30
+# Call an automatic merging function
+merge8.30 <-
+mergeCloseModules(infection8dpp,
+dynamicColors8,
+cutHeight = MEDissThres,
+verbose = 0)
+# The merged module colors
+merged8Colors.30 <- merge8.30$colors
+
+# Eigengenes of the new merged modules:
+merged8MEs.30 <- merge8.30$newMEs
+```
+
+Ok lets compare the merged modules to the orginal dynamic tree cut and the gene
+dendrogram
+```{r plotMerged16}
+plotDendroAndColors(geneTree16, cbind(dynamicColors16, merged16Colors.15, merged16Colors.20, merged16Colors.25, merged16Colors.30),
+                    c("Dynamic Tree Cut", "Merged 0.15", "Merged 0.20", "Merged 0.25", "Merged 0.30"),
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05,
+                    main = "Cluster dendrogram - 16dpp")
+```
+
+```{r plotMerged8}
+plotDendroAndColors(geneTree8, cbind(dynamicColors8, merged8Colors.15, merged8Colors.20, merged8Colors.25, merged8Colors.30),
+                    c("Dynamic Tree Cut", "Merged 0.15", "Merged 0.20", "Merged 0.25", "Merged 0.30"),
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05,
+                    main = "Cluster dendrogram - 8dpp")
+```
