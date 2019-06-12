@@ -1760,3 +1760,57 @@ We then take the adjacency matrix and calculate the Topological Overlap Matrix
 dissTOM16 <- 1 - TOMsimilarity(adjacency16, TOMType = "unsigned")
 dissTOM8 <- 1 - TOMsimilarity(adjacency8, TOMType = "unsigned")
 ```
+
+
+Plot the gene dendrograms based on their dissimilarty 
+```{r genetree}
+geneTree16 <- hclust(as.dist(dissTOM16), method = "average");
+geneTree8 <- hclust(as.dist(dissTOM8), method = "average");
+
+plot(geneTree16, xlab = "", sub = "", main = "Gene clustering on TOM-based dissimilarity 16dpp",
+     labels = FALSE, hang = 0.04);
+
+plot(geneTree8, xlab = "", sub = "", main = "Gene clustering on TOM-based dissimilarity 8dpp",
+     labels = FALSE, hang = 0.04);
+
+```
+
+We then use the dynamic tree cut algorithm to identify first pass modules. These will then be merged.
+
+```{r dynamicTree}
+minModuleSize <- 30;
+# Module identification using dynamic tree cut:
+dynamicMods16 <- cutreeDynamic(dendro = geneTree16, 
+                              distM = dissTOM16,
+                              deepSplit = 2, 
+                              pamRespectsDendro = FALSE,
+                              minClusterSize = minModuleSize);
+
+dynamicMods8 <- cutreeDynamic(dendro = geneTree8, 
+                               distM = dissTOM8,
+                               deepSplit = 2, 
+                               pamRespectsDendro = FALSE,
+                               minClusterSize = minModuleSize);
+
+# Convert numeric lables into colors
+dynamicColors16 <- labels2colors(dynamicMods16)
+table(dynamicColors16)
+
+dynamicColors8 <- labels2colors(dynamicMods8)
+table(dynamicColors8)
+```
+
+ID first module eigengenes and then cluster based on dissimilarity
+```{r dynamicME}
+## calculate eigengenes
+
+MEList16 <- moduleEigengenes(infection16dpp, colors = dynamicColors16)
+MEs16 <- MEList16$eigengenes
+
+MEList8 <- moduleEigengenes(infection8dpp, colors = dynamicColors8)
+MEs8 <- MEList8$eigengenes
+
+# Calculate dissimilarity of module eigengenes
+MEDiss16 <- 1-cor(MEs16)
+MEDiss8 <- 1-cor(MEs8)
+```
