@@ -2060,3 +2060,104 @@ plotDendroAndColors(geneTree8,
                     addGuide = TRUE, guideHang = 0.05,
                     main = "Susceptible-aged (8dpp) fruit\ngene dendrogram and module colors")
 ```
+
+Let's examine the module preservation
+```{r modPres, eval=TRUE, include=FALSE}
+# Number of data sets that we work with
+nSets <- 2;
+# Object that will contain the expression data
+multiExpr <- list();
+multiExpr[[1]] = list(data = infection16dpp)
+multiExpr[[2]] = list(data = infection8dpp)
+
+# Names for the two sets
+setLabels <- c("16dpp", "8dpp");
+# Important: components of multiExpr must carry identificating names
+names(multiExpr) <- setLabels
+# Display the dimensions of the expression data (if you are confused by this construct, ignore it):
+lapply(multiExpr, lapply, dim)
+
+
+# Create an object (list) holding the module labels for each set:
+colorList <- list(moduleColors16.custom, moduleColors8.custom);
+# Components of the list must be named so that the names can be matched to the names of multiExpr
+names(colorList) <- setLabels;
+
+mp_infected <-
+  modulePreservation(
+    multiExpr,
+    colorList,
+    networkType = "signed",
+    corFnc = "bicor",
+    corOptions = "maxPOutliers = 0.1",
+    referenceNetworks = c(1:2),
+    loadPermutedStatistics = FALSE,
+    nPermutations = 200,
+    verbose = 3
+  )
+```
+
+
+Preservation stats for 16dpp network:
+```{r plotPres16}
+presData16dppRef <- tibble(moduleColor = rownames(mp_infected$preservation$Z[[1]][[2]]),
+                          Zsummary = mp_infected$preservation$Z[[1]][[2]]$Zsummary.pres,
+                          medianRank = mp_infected$preservation$observed[[1]][[2]]$medianRank.pres,
+                          moduleSize = mp_infected$preservation$Z[[1]][[2]]$moduleSize) %>%
+  filter(!moduleColor == "gold") %>%
+  mutate(moduleLabel = match(moduleColor, names(sort(table(moduleColors16.custom), decreasing = TRUE))))
+
+pr1_16 <- presData16dppRef %>%
+  ggplot(aes(x = moduleSize, y = Zsummary)) +
+  geom_point(aes(color = moduleColor), size = 4) +
+  ggrepel::geom_text_repel(aes(label = moduleLabel), force = 5) +
+  geom_hline(yintercept = 2, linetype = 2, color = "red") +
+  geom_hline(yintercept = 10, linetype = 2, color = "darkgreen") +
+  scale_color_identity()
+
+pr2_16 <- presData16dppRef %>%
+  ggplot(aes(x = moduleSize, y = medianRank)) +
+  geom_point(aes(color = moduleColor), size = 4) +
+  ggrepel::geom_text_repel(aes(label = moduleLabel), force = 5) +
+  scale_color_identity()
+
+pr3_16 <- presData16dppRef %>%
+  ggplot(aes(x = Zsummary, y = medianRank)) +
+  geom_point(aes(color = moduleColor), size = 4) +
+  ggrepel::geom_text_repel(aes(label = moduleLabel), force = 5) +
+  scale_color_identity()
+```
+
+Now presrevation of the 8dpp network:
+```{r plotPres8}
+presData8dppRef <- tibble(moduleColor = rownames(mp_infected$preservation$Z[[2]][[1]]),
+                          Zsummary = mp_infected$preservation$Z[[2]][[1]]$Zsummary.pres,
+                          medianRank = mp_infected$preservation$observed[[2]][[1]]$medianRank.pres,
+                          moduleSize = mp_infected$preservation$Z[[2]][[1]]$moduleSize) %>%
+  filter(!moduleColor == "gold") %>%
+  mutate(moduleLabel = match(moduleColor, names(sort(table(moduleColors8.custom), decreasing = TRUE))))
+
+pr1_8 <- presData8dppRef %>%
+  ggplot(aes(x = moduleSize, y = Zsummary)) +
+  geom_point(aes(color = moduleColor), size = 4) +
+  ggrepel::geom_text_repel(aes(label = moduleLabel), force = 5) +
+  geom_hline(yintercept = 2, linetype = 2, color = "red") +
+  geom_hline(yintercept = 10, linetype = 2, color = "darkgreen") +
+  scale_color_identity()
+
+pr2_8 <- presData8dppRef %>%
+  ggplot(aes(x = moduleSize, y = medianRank)) +
+  geom_point(aes(color = moduleColor), size = 4) +
+  ggrepel::geom_text_repel(aes(label = moduleLabel), force = 5) +
+  scale_color_identity()
+
+pr3_8 <- presData8dppRef %>%
+  ggplot(aes(x = Zsummary, y = medianRank)) +
+  geom_point(aes(color = moduleColor), size = 4) +
+  ggrepel::geom_text_repel(aes(label = moduleLabel), force = 5) +
+  scale_color_identity()
+```
+
+```{r, allpres, fig.height=12, fig.width=8}
+cowplot::plot_grid(pr1_8, pr1_16, pr2_8, pr2_16, pr3_8, pr3_16, ncol = 2)
+```
