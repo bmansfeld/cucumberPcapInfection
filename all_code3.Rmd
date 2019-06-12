@@ -45,6 +45,8 @@ library(ggalluvial)
 library(WGCNA)
 library(pheatmap)
 library(topGO)
+library(RColorBrewer)
+
 ```
 
 # Transcriptome Experiment 1
@@ -1974,4 +1976,87 @@ plotDendroAndColors(geneTree8, cbind(dynamicColors8, merged8Colors.15, merged8Co
                     dendroLabels = FALSE, hang = 0.03,
                     addGuide = TRUE, guideHang = 0.05,
                     main = "Cluster dendrogram - 8dpp")
+```
+
+
+We choose the 0.25 merge level
+```{r selectMerge}
+# Rename to selected merged moduleColors 
+moduleColors16 <- merged16Colors.25
+moduleColors8 <- merged8Colors.25
+
+# Construct numerical labels corresponding to the colors
+finalColors16 <- names(sort(table(moduleColors16), decreasing = TRUE)) 
+finalColors16 <- finalColors16[!finalColors16 %in% "grey"]
+
+finalColors8 <- names(sort(table(moduleColors8), decreasing = TRUE)) 
+finalColors8 <- finalColors8[!finalColors8 %in% "grey"]
+
+colorOrder <- c("grey", finalColors16)
+moduleLabels16 <- match(moduleColors16, colorOrder) - 1
+
+colorOrder <- c("grey", finalColors8)
+moduleLabels8 <- match(moduleColors8, colorOrder) - 1
+
+table(moduleLabels16)
+table(moduleLabels8)
+
+#overlapTable(moduleLabels16, moduleLabels8)
+```
+
+Recolor with prettier colors
+```{r prettyColors}
+
+qual_col_pals <- brewer.pal.info[brewer.pal.info$category == 'qual',]
+
+col_vector <- unique(unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals))))
+
+# recolor modules so there are no overlaps between the network colors
+set.seed(7)
+customColorOrder16 <-
+c(
+"grey",
+sample(col_vector, 
+       size = length(unique(moduleLabels16[!moduleLabels16 %in% 0])), 
+       replace = FALSE
+       )
+)
+moduleColors16.custom <- customColorOrder16[moduleLabels16 + 1]
+
+set.seed(9)
+customColorOrder8 <-
+c(
+"grey",
+sample(col_vector[!col_vector %in% unique(moduleColors16.custom)],
+       size = length(unique(moduleLabels8[!moduleLabels8 %in% 0])), 
+       replace = FALSE)
+)
+moduleColors8.custom <- customColorOrder8[moduleLabels8 + 1]
+```
+
+Selected the new MEs after merging
+```{r newME}
+MEs16Lables <- moduleEigengenes(infection16dpp, colors = moduleLabels16)$eigengenes
+MEs8Lables <- moduleEigengenes(infection8dpp, colors = moduleLabels8)$eigengenes
+
+MEs16Colors <- moduleEigengenes(infection16dpp, colors = moduleColors16.custom)$eigengenes
+MEs8Colors <- moduleEigengenes(infection8dpp, colors = moduleColors8.custom)$eigengenes
+```
+
+Plot the final gene trees and modules
+```{r finalModuleTrees}
+
+plotDendroAndColors(geneTree16,
+                    cbind(moduleColors16.custom),
+                    "Resistant\nmodules\n(16dpp)",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05,
+                    main = "Resistant-aged (16dpp) fruit\ngene dendrogram and module colors")
+
+plotDendroAndColors(geneTree8,
+                    cbind(moduleColors8.custom),
+                    "Susceptible\nmodules\n(8dpp)",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05,
+                    main = "Susceptible-aged (8dpp) fruit\ngene dendrogram and module colors")
 ```
