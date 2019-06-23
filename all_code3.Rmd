@@ -46,7 +46,7 @@ library(WGCNA)
 library(pheatmap)
 library(topGO)
 library(RColorBrewer)
-
+library(splines)
 ```
 
 # Transcriptome Experiment 1
@@ -2062,7 +2062,7 @@ plotDendroAndColors(geneTree8,
 ```
 
 Let's examine the module preservation
-```{r modPres, eval=TRUE, include=FALSE}
+```{r modPres, message=FALSE, warning=FALSE}
 # Number of data sets that we work with
 nSets <- 2;
 # Object that will contain the expression data
@@ -2160,4 +2160,335 @@ pr3_8 <- presData8dppRef %>%
 
 ```{r, allpres, fig.height=12, fig.width=8}
 cowplot::plot_grid(pr1_8, pr1_16, pr2_8, pr2_16, pr3_8, pr3_16, ncol = 2)
+```
+
+Plot alluvial comparison of modules
+
+
+```{r alluvialWithSig, fig.width=13, fig.height=4, warning=FALSE}
+
+networkLodes <- as.data.frame(overlapTable(moduleLabels16, moduleLabels8)$countTable) %>%
+  mutate(module16dpp = rownames(.)) %>% 
+  gather(key = "module8dpp", value = "overlap", -module16dpp) %>%
+  left_join(as.data.frame(overlapTable(moduleLabels16, moduleLabels8)$pTable) %>%
+              mutate(module16dpp = rownames(.)) %>% 
+              gather(key = "module8dpp", value = "pvalue", -module16dpp) 
+  ) %>%
+  mutate(
+    # module16dpp = fct_relevel(module16dpp, as.character(c(1:23, 0))),
+    # module8dpp = fct_relevel(module8dpp, as.character(1:14)),
+    `16dpp` = fct_rev(fct_inorder(rep(customColorOrder16[-1], length(customColorOrder8[-1])))),
+    `8dpp` = fct_rev(fct_inorder(rep(customColorOrder8[-1], each = length(customColorOrder16[-1]))))
+  ) %>% 
+  to_lodes_form(key = "Network", value = "module", id = "Cohort", -pvalue, -overlap, -module16dpp, -module8dpp) %>%
+  mutate(padj = p.adjust(pvalue),
+         isSig = ifelse(padj < 0.001, "Yes", "No"),
+         moduleSize = c(
+           rep(sort(table(moduleColors16.custom), decreasing = TRUE), length(customColorOrder8[-1])),
+           rep(sort(table(moduleColors8.custom), decreasing = TRUE), each = length(customColorOrder16[-1]))
+         ),
+         moduleLabel = ifelse(Network == "16dpp", as.character(module16dpp), as.character(module8dpp))
+         )
+
+
+  ggplot(data = networkLodes,
+         aes(
+           x = Network,
+           y = overlap,
+           stratum = module,
+           alluvium = Cohort
+         )) +
+    geom_stratum(aes(fill = module, color = module)) +
+    #scale_fill_identity() +
+    #scale_color_identity() +
+    scale_alpha_manual(values=c(0.25, 1)) +
+    ggnewscale::new_scale_fill() +
+    ggnewscale::new_scale_color() +
+    geom_flow(aes(fill = isSig)) +
+    scale_fill_viridis_d(direction = 1, begin = 0, end = 0.55, 
+                       name = "Significant Overlap (Fisher's Exact, FDR < 0.001)"
+                      ) +
+    geom_text(stat = "stratum", aes(label = ifelse(
+    moduleSize > 250, as.character(moduleLabel), NA
+    ))) +
+    ggrepel::geom_text_repel(data = filter(networkLodes, Network == "8dpp"), 
+                           stat = "stratum", aes(label = ifelse(moduleSize <= 250,
+                                                                moduleLabel,
+                                                                NA)), 
+                           nudge_x = .5) +
+    ggrepel::geom_text_repel(data = filter(networkLodes, Network == "16dpp"), 
+                           stat = "stratum", aes(label = ifelse(moduleSize <= 250,
+                                                                moduleLabel,
+                                                                NA)), 
+                           nudge_x = -.5) +
+    coord_flip() +
+    scale_y_continuous(breaks = seq(0, length(infection16dpp) + 1000, 1000), 
+                       name = "Number of genes") +
+    scale_x_discrete(labels = c("8dpp" = "Susceptible\nmodules\n(8dpp)", 
+                                "16dpp" = "Resistant\nmodules\n(16dpp)")) +
+    theme(legend.direction = "horizontal", legend.position = c(0.225, 0.1))
+
+```
+
+
+Plot VST expression data for each module
+```{r moduleExp16}
+
+moduleExp16 <- 
+  as.data.frame(assay(vst[colnames(infection16dpp), ])) %>% 
+  mutate(gene = rownames(.),
+         module = moduleColors16.custom,
+         moduleLabel = moduleLabels16) %>%
+  gather("sample", "counts",-gene, -module, -moduleLabel) %>% 
+  mutate(age = rep(vst$age, each = ncol(infection16dpp)),
+         timepoint = rep(str_remove(vst$timepoint, "T"), each =  ncol(infection16dpp)),
+         treatment = rep(vst$treatment, each =  ncol(infection16dpp))
+  ) %>%
+  left_join(., as_tibble(table(moduleColors16.custom)), by = c("module" = "moduleColors16.custom")) %>%
+  mutate(timepoint = as.numeric(timepoint),
+         module = fct_infreq(module),
+         facetLabel = fct_infreq(paste0("R", moduleLabel, " (n=", n,")"))
+         ) 
+
+modSubset <- unique(moduleExp16$moduleLabel)
+modSubset <- modSubset[!modSubset %in% 0]
+```
+
+
+```{r plotModExp16, fig.height=8, fig.width = 7}
+p1 <- moduleExp16 %>%
+  filter(moduleLabel %in% modSubset) %>%
+  ggplot() +
+  stat_summary(
+    data = filter(moduleExp16, treatment == "Inoc" &
+                    moduleLabel %in% modSubset),
+    fun.data = mean_se,
+    geom = "ribbon",
+    aes(x = timepoint, y = counts, fill = age),
+    alpha = 0.2
+  ) +
+  stat_summary(
+    data = filter(moduleExp16, treatment == "Cont" &
+                    moduleLabel %in% modSubset),
+    fun.data = mean_se,
+    geom = "ribbon",
+    aes(x = timepoint, y = counts, fill = age),
+    alpha = 0.2
+  ) +
+  stat_summary(
+    fun.y = mean,
+    geom = "line",
+    aes(
+      x = timepoint,
+      y = counts,
+      color = age,
+      linetype = treatment
+    )
+  ) + 
+  stat_summary(
+    fun.y = mean,
+    geom = "point",
+    aes(
+      x = timepoint,
+      y = counts,
+      group = paste0(age, treatment)
+    ), shape = 16, 
+    color = rep(rep(c("#00BFC4", "#00BFC4", "#F8766D", "#F8766D"), each = 7), length(modSubset))
+  ) + 
+  facet_wrap(~ facetLabel, scales = "free", ncol = 5) +
+  scale_x_continuous(breaks = c(0, 2, 4, 8, 12, 18, 24)) +
+  labs(x = "Hours post inoculation", y = "Variance stabilizing transformed read count") +
+  guides(linetype = guide_legend(title="Treatment"), 
+         color = guide_legend(title = "Age"),
+         fill = guide_legend(title = "Age")) +
+  scale_linetype_discrete(labels = c("Control", "Inoculated")) +
+  scale_color_discrete(labels = c("8 dpp", "16 dpp")) +
+  scale_fill_discrete(labels = c("8 dpp", "16 dpp")) +
+  cowplot::theme_cowplot(font_size = 11) +
+    theme(strip.text = element_text(
+        colour = "grey10",
+        size = rel(0.8),
+        margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+        ),
+        legend.position="bottom")
+
+
+g1 <- ggplot_gtable(ggplot_build(p1))
+stripr <- which(grepl('strip-t', g1$layout$name) & grepl("gTree", g1$grobs))
+                
+fills <- names(sort(table(moduleColors16.custom), decreasing = T))
+fills <- names(sort(table(moduleColors16.custom), decreasing = T))[unlist(rev(split(1:length(fills), ceiling(seq_along(1:length(fills))/5))), use.names = F)]
+
+
+k <- 1
+
+for (i in stripr) {
+    j <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
+    g1$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
+    k <- k+1
+}
+grid::grid.draw(g1)
+```
+
+```{r plotModExp16only16, fig.height=8, fig.width = 7}
+p_only16 <- moduleExp16 %>%
+  filter(!moduleLabel == 0) %>%
+  ggplot() + 
+  stat_summary(data = filter(moduleExp16, treatment == "Inoc" & age == "16dpp", moduleLabel != 0), fun.data = mean_se, geom = "ribbon", aes(x = timepoint, y = counts), alpha = 0.2, fill = "#00BFC4") +
+  stat_summary(data = filter(moduleExp16, treatment == "Inoc" & age == "8dpp", moduleLabel != 0), fun.data = mean_se, geom = "ribbon", aes(x = timepoint, y = counts), alpha = 0.0) +
+  stat_summary(data = filter(moduleExp16, treatment == "Cont", moduleLabel != 0), fun.data = mean_se, geom = "ribbon", aes(x = timepoint, y = counts, fill = age), alpha = 0.0) +
+  scale_alpha_manual(values = c(0, 1)) +
+  stat_summary(data = filter(moduleExp16, treatment == "Inoc", moduleLabel != 0), fun.y = mean, geom = "line", aes(x = timepoint, y = counts, color = age, alpha = age, linetype = treatment), size = 1) +
+  stat_summary(data = filter(moduleExp16, treatment == "Cont", moduleLabel != 0), fun.y = mean, geom = "line", aes(x = timepoint, y = counts, color = age, linetype = treatment), size = 1,  alpha = 0) +
+  stat_summary(data = filter(moduleExp16, treatment == "Inoc" & age == "16dpp", moduleLabel != 0),
+    fun.y = mean,
+    geom = "point",
+    aes(
+      x = timepoint,
+      y = counts,
+      group = paste0(age, treatment)
+    ), shape = 16,
+    size = 2,
+    color = rep(rep(c("#00BFC4"), each = 7), length(modSubset))
+  ) +
+  facet_wrap(~ facetLabel, scales = "free", ncol = 5) +
+  scale_x_continuous(breaks = c(0, 2, 4, 8, 12, 18, 24)) +
+  labs(x = "Hours post inoculation", y = "Variance stabilizing transformed read count") +
+  guides(linetype = guide_legend(title="Treatment"), 
+         color = guide_legend(title = "Age"),
+         fill = guide_legend(title = "Age")) +
+  scale_linetype_discrete(labels = c("Control", "Inoculated")) +
+  scale_color_discrete(labels = c("8 dpp", "16 dpp")) +
+  scale_fill_discrete(labels = c("8 dpp", "16 dpp")) +
+  theme_gray() +
+  theme(legend.position="bottom")
+
+g1 <- ggplot_gtable(ggplot_build(p_only16))
+stripr <- which(grepl('strip-t', g1$layout$name) & grepl("gTree", g1$grobs))
+                
+fills <- names(sort(table(moduleColors16.custom), decreasing = T))
+fills <- names(sort(table(moduleColors16.custom), decreasing = T))[unlist(rev(split(1:length(fills), ceiling(seq_along(1:length(fills))/5))), use.names = F)]
+
+
+k <- 1
+
+for (i in stripr) {
+    j <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
+    g1$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
+    k <- k+1
+}
+grid::grid.draw(g1)
+```
+
+
+```{r tidyExp}
+
+modulecounts16 <- 
+  as.data.frame(counts(dds[colnames(infection16dpp), ], normalized = T)) %>% 
+  mutate(gene = rownames(.),
+         module = moduleColors16.custom,
+         moduleLabel = moduleLabels16) %>%
+  gather("sample", "counts",-gene, -module, -moduleLabel) %>% 
+  mutate(age = rep(vst$age, each = ncol(infection16dpp)),
+         timepoint = rep(str_remove(vst$timepoint, "T"), each =  ncol(infection16dpp)),
+         treatment = rep(vst$treatment, each =  ncol(infection16dpp))
+  ) %>%
+  left_join(., as_tibble(table(moduleColors16.custom)), by = c("module" = "moduleColors16.custom")) %>%
+  mutate(timepoint = as.numeric(timepoint),
+         module = fct_infreq(module),
+         facetLabel = fct_infreq(paste0("R", moduleLabel, " (n=", n,")")),
+         logCounts = log2(counts + 0.5)
+  ) 
+```
+
+Which have significant interaction effects and then in which spline portion do they have an interaction
+```{r expANOVA}
+modulecounts16 %>%
+  filter(treatment == "Inoc") %>%
+  group_by(moduleLabel) %>%
+  do(anova = anova(lm(logCounts ~ age*ns(timepoint, df = 4), data = .))) %>%
+  broom::tidy(anova) %>%
+  mutate(padj = p.adjust(p.value, method = "BH")) %>%
+  filter(str_detect(term, "age:ns"), p.value < 0.05) %>% kable()
+
+modulecounts16 %>%
+  filter(treatment == "Inoc") %>%
+  group_by(moduleLabel) %>%
+  do(fit = summary(lm(counts ~ age*ns(timepoint, df = 4), data = .))) %>%
+  broom::tidy(fit) %>%
+  mutate(padj = p.adjust(p.value, method = "BH")) %>%
+  filter(str_detect(term, "16dpp:ns"), p.value < 0.05) %>%
+  kable()
+```
+
+```{r MEanova, fig.height=8, fig.width = 7}
+# tidy_MEs16dpp <-
+#   as_tibble(moduleEigengenes(infection16dpp, colors = moduleLabels16)$averageExpr) %>%
+#   mutate(age = "16dpp",
+#          timepoint = vst$timepoint[vst$treatment == "Inoc" &
+#          vst$age == "16dpp"]) %>%
+#          gather(key = "Module", value = "EigengeneExp", -age, -timepoint) %>%
+#   bind_rows(.,
+#             as_tibble(
+#             moduleEigengenes(infection8dpp, colors = moduleLabels16)$averageExpr) %>%
+#                 mutate(age = "8dpp",
+#                 timepoint = vst$timepoint[vst$treatment == "Inoc" &
+#                 vst$age == "8dpp"]) %>%
+#                 gather(key = "Module", value = "EigengeneExp", -age, -timepoint)
+#   ) %>%
+#   mutate(numTP = as.numeric(str_remove(timepoint, "T")),
+#          age = fct_relevel(age, "8dpp"),
+#          moduleLabel = as.numeric(str_remove(Module, "AE")))
+
+# tidy_MEs16dppCont <-
+#   as_tibble(moduleEigengenes(control16dpp, colors = moduleLabels16)$averageExpr) %>%
+#   mutate(age = "16dpp",
+#          timepoint = vst$timepoint[vst$treatment == "Cont" &
+#          vst$age == "16dpp"]) %>%
+#          gather(key = "Module", value = "EigengeneExp", -age, -timepoint) %>%
+#   bind_rows(.,
+#             as_tibble(
+#             moduleEigengenes(control8dpp, colors = moduleLabels16)$averageExpr) %>%
+#                 mutate(age = "8dpp",
+#                 timepoint = vst$timepoint[vst$treatment == "Cont" &
+#                 vst$age == "8dpp"]) %>%
+#                 gather(key = "Module", value = "EigengeneExp", -age, -timepoint),
+#   ) %>%
+#   mutate(numTP = as.numeric(str_remove(timepoint, "T")),
+#          age = fct_relevel(age, "8dpp"),
+#          moduleLabel = as.numeric(str_remove(Module, "AE")))
+
+pME <- modulecounts16 %>%
+  filter(treatment == "Inoc") %>%
+  group_by(moduleLabel) %>% 
+  ggplot(aes(x = timepoint, y = logCounts, color = age)) + 
+  stat_summary(fun.data = "mean_se", size = 0.25) + 
+  geom_smooth(method = lm,
+              formula = y ~ splines::ns(x, df = 4), linetype = 2) +
+  facet_wrap(~ moduleLabel, scales = "free", ncol = 5) +
+  labs(x = "Hours post inoculation", y = "Log(Normalized counts)") +
+  theme_gray() +
+  theme(legend.position="bottom")
+
+gME <- ggplot_gtable(ggplot_build(pME))
+stripr <- which(grepl('strip-t', gME$layout$name) & grepl("gTree", gME$grobs))
+                
+fills <- names(sort(table(moduleColors16.custom), decreasing = T))
+fills <- names(
+  sort(
+    table(
+      moduleColors16.custom), decreasing = T)
+  )[unlist(rev(split(1:length(fills), ceiling(seq_along(1:length(fills))/5))), 
+           use.names = F)]
+
+
+k <- 1
+
+for (i in stripr) {
+    j <- which(grepl('rect', gME$grobs[[i]]$grobs[[1]]$childrenOrder))
+    gME$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
+    k <- k+1
+}
+grid::grid.draw(gME)
+
 ```
