@@ -2421,43 +2421,9 @@ modulecounts16 %>%
   kable()
 ```
 
+normalized gene expression and fitted curves with splined time
+
 ```{r MEanova, fig.height=8, fig.width = 7}
-# tidy_MEs16dpp <-
-#   as_tibble(moduleEigengenes(infection16dpp, colors = moduleLabels16)$averageExpr) %>%
-#   mutate(age = "16dpp",
-#          timepoint = vst$timepoint[vst$treatment == "Inoc" &
-#          vst$age == "16dpp"]) %>%
-#          gather(key = "Module", value = "EigengeneExp", -age, -timepoint) %>%
-#   bind_rows(.,
-#             as_tibble(
-#             moduleEigengenes(infection8dpp, colors = moduleLabels16)$averageExpr) %>%
-#                 mutate(age = "8dpp",
-#                 timepoint = vst$timepoint[vst$treatment == "Inoc" &
-#                 vst$age == "8dpp"]) %>%
-#                 gather(key = "Module", value = "EigengeneExp", -age, -timepoint)
-#   ) %>%
-#   mutate(numTP = as.numeric(str_remove(timepoint, "T")),
-#          age = fct_relevel(age, "8dpp"),
-#          moduleLabel = as.numeric(str_remove(Module, "AE")))
-
-# tidy_MEs16dppCont <-
-#   as_tibble(moduleEigengenes(control16dpp, colors = moduleLabels16)$averageExpr) %>%
-#   mutate(age = "16dpp",
-#          timepoint = vst$timepoint[vst$treatment == "Cont" &
-#          vst$age == "16dpp"]) %>%
-#          gather(key = "Module", value = "EigengeneExp", -age, -timepoint) %>%
-#   bind_rows(.,
-#             as_tibble(
-#             moduleEigengenes(control8dpp, colors = moduleLabels16)$averageExpr) %>%
-#                 mutate(age = "8dpp",
-#                 timepoint = vst$timepoint[vst$treatment == "Cont" &
-#                 vst$age == "8dpp"]) %>%
-#                 gather(key = "Module", value = "EigengeneExp", -age, -timepoint),
-#   ) %>%
-#   mutate(numTP = as.numeric(str_remove(timepoint, "T")),
-#          age = fct_relevel(age, "8dpp"),
-#          moduleLabel = as.numeric(str_remove(Module, "AE")))
-
 pME <- modulecounts16 %>%
   filter(treatment == "Inoc") %>%
   group_by(moduleLabel) %>% 
@@ -2491,4 +2457,29 @@ for (i in stripr) {
 }
 grid::grid.draw(gME)
 
+```
+
+```{r goTermsFuncs, echo=FALSE, message=FALSE, warning=FALSE}
+source("topGO functions.R")
+library(topGO)
+CukeGO <- read.csv(file = "../Fruit Infection/CukeGO.csv", header = TRUE, stringsAsFactors = FALSE)
+
+#prepare as named list for use with topGO
+GOList<-setNames(nm = CukeGO$X, strsplit(CukeGO$GOTerm, "; "))
+
+moduleGOterms <- function(network = "16dpp", mod, nodeSize = 500, n = 500, cutoff = 0.05) {
+    if (network == "16dpp") {
+        genesInMod <- rownames((vst[colnames(infection16dpp)[moduleLabels16 %in% mod], ]))
+
+    } else {
+        genesInMod <- rownames((vst[colnames(infection8dpp)[moduleLabels8 %in% mod], ]))
+    }
+
+  tgd <- runTopGoAnalysis(DEgeneSet = genesInMod, dds = vst, GOdb = GOList, onts = "BP", nodeSize = nodeSize)
+
+  GO <- exportGOtable(tgd, "Fisher.weight01", n = n) %>%
+    mutate(Fisher.weight01 = as.numeric(Fisher.weight01))
+
+  subset(GO, Fisher.weight01 < cutoff)
+}
 ```
