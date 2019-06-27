@@ -47,7 +47,7 @@ library(pheatmap)
 library(topGO)
 library(RColorBrewer)
 library(splines)
-
+library(rvest)
 ```
 
 # Transcriptome Experiment 1
@@ -2668,3 +2668,72 @@ geneMod7 <-
   ) %>%
   left_join(resultsEarly)
 ```
+
+```{r mod_filt}
+geneMod4_filt <- geneMod4 %>% 
+  mutate(passT2 = (padj_T2vs8 < 0.05 & 
+                     padj_T2vsC < 0.05 &
+                     log2FoldChange_T2vs8 >= 1 &
+                     log2FoldChange_T2vsC >= 1),
+         passT4 = (padj_T4vs8 < 0.05 & 
+                     padj_T4vsC < 0.05 &
+                     log2FoldChange_T4vs8 >= 1 &
+                     log2FoldChange_T4vsC >= 1)
+         ) %>%
+  filter(passT2 == TRUE | passT4 == TRUE) %>%
+  filter(modMembership >= 0.75) %>%
+  #filter(modMembership >= quantile(geneMod4$modMembership, 0.75)) %>%
+  dplyr::select(-contains("lfcSE"),
+                -contains("stat"),
+                -contains("pvalue"),
+                -contains("baseMean")) %>%
+  arrange(desc(modMembership)) %>%
+  rowwise() %>%
+  mutate(Annotation = paste(html_text(html_nodes(read_html(paste0("http://cucurbitgenomics.org/feature/gene/", gene)), "#11 .odd:nth-child(1) td:nth-child(1) , #11 .odd:nth-child(1) td:nth-child(2) , #11 .odd:nth-child(1) td:nth-child(3) , #11 .odd:nth-child(1) td:nth-child(4)")), collapse = "__")
+    ) %>%
+  separate(Annotation, into = c("Match Name", "E-value", "Identity", "Description"), sep = "__")
+
+geneMod7_filt <- geneMod7 %>% 
+  mutate(passT2 = (padj_T2vs8 < 0.05 & 
+                     padj_T2vsC < 0.05 &
+                     log2FoldChange_T2vs8 >= 1 &
+                     log2FoldChange_T2vsC >= 1),
+         passT4 = (padj_T4vs8 < 0.05 & 
+                     padj_T4vsC < 0.05 &
+                     log2FoldChange_T4vs8 >= 1 &
+                     log2FoldChange_T4vsC >= 1)
+         ) %>%
+  filter(passT2 == TRUE | passT4 == TRUE) %>%
+  filter(modMembership >= 0.75) %>%
+  #filter(modMembership >= quantile(geneMod4$modMembership, 0.75)) %>%
+  dplyr::select(-contains("lfcSE"),
+                -contains("stat"),
+                -contains("pvalue"),
+                -contains("baseMean")) %>%
+  arrange(desc(modMembership)) %>%
+  rowwise() %>%
+  mutate(Annotation = paste(html_text(html_nodes(read_html(paste0("http://cucurbitgenomics.org/feature/gene/", gene)), "#11 .odd:nth-child(1) td:nth-child(1) , #11 .odd:nth-child(1) td:nth-child(2) , #11 .odd:nth-child(1) td:nth-child(3) , #11 .odd:nth-child(1) td:nth-child(4)")), collapse = "__")
+    ) %>%
+  separate(Annotation, into = c("Match Name", "E-value", "Identity", "Description"), sep = "__")
+
+
+mod5and9GOIs <- bind_rows("Mod5" = geneMod4_filt, "Mod9" = geneMod7_filt, .id = "Module")
+
+kableExtra::kable(mod5and9GOIs %>% 
+                    dplyr::select(-`Match Name`, -`E-value`, -Identity, -Description), format="latex", booktabs=TRUE) %>%
+  kable_styling(latex_options="scale_down")
+
+
+kableExtra::kable(mod5and9GOIs %>% 
+                    dplyr::select(Module, gene, `Match Name`, `E-value`, Identity, Description), 
+                  format="latex", booktabs=TRUE) %>%
+  kable_styling(latex_options="scale_down")
+
+
+
+kableExtra::kable(mod5and9GOIs %>% 
+                      dplyr::select(Module, gene, modMembership, Description, -passT2, -passT4, -`Match Name`, -`E-value`, -Identity, -Description, everything()), 
+                  format="latex", booktabs=TRUE, digits = 20) %>%
+  kable_styling(latex_options="scale_down")
+```
+
