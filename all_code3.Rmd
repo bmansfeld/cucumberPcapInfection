@@ -2479,15 +2479,20 @@ moduleGOterms <- function(network = "16dpp", mod, nodeSize = 500, n = 500, cutof
   tgd <- runTopGoAnalysis(DEgeneSet = genesInMod, dds = vst, GOdb = GOList, onts = "BP", nodeSize = nodeSize)
 
   GO <- exportGOtable(tgd, "Fisher.weight01", n = n) %>%
+      mutate(Fisher.weight01 = ifelse(Fisher.weight01 == "< 1e-30", "1e-30", Fisher.weight01)) %>%
     mutate(Fisher.weight01 = as.numeric(Fisher.weight01))
 
   subset(GO, Fisher.weight01 < cutoff)
+  GO
 }
+
 ```
 
 
 Which modules have an interaction in the first or second spline portions
 ```{r firstspline}
+library(splines)
+
 anovaModExp <- modulecounts16 %>%
   filter(treatment == "Inoc") %>%
   group_by(moduleLabel) %>%
@@ -2498,84 +2503,115 @@ anovaModExp <- modulecounts16 %>%
 anovaModExp
 ```
 
-<!-- ```{r anovaGOterms, message=FALSE, warning=FALSE} -->
+```{r anovaGOterms, message=FALSE, warning=FALSE}
+GOres <- list()
 
-<!-- GOres <- list() -->
-<!-- k <- 1 -->
-<!-- for (i in anovaModExp$moduleLabel) { -->
-<!-- GOres[[k]] <- moduleGOterms( -->
-<!--   network = "16dpp", -->
-<!--   mod = i, -->
-<!--   nodeSize = 100, -->
-<!--   n = 5 -->
-<!--   ) -->
-<!-- k <- k + 1 -->
-<!-- } -->
+k <- 1
+for (i in unique(anovaModExp$moduleLabel)) {
+GOres[[k]] <- moduleGOterms(
+  network = "16dpp",
+  mod = i,
+  nodeSize = 100,
+  n = 5
+  )
+k <- k + 1
+}
 
-<!-- names(GOres) <- anovaModExp$moduleLabel -->
-<!-- ``` -->
+names(GOres) <- unique(anovaModExp$moduleLabel)
 
-<!-- ```{r interactionModGO, fig.width=7, fig.height= 8} -->
-<!-- fills <- rev(names(sort(table(moduleColors16.custom), decreasing = T))[anovaModExp$moduleLabel]) -->
+GOres
+```
 
-<!-- tidyGOres <- bind_rows(GOres, .id = "moduleLabel") %>% -->
-<!--   mutate(moduleLabel = fct_relevel(moduleLabel, as.character(sort(unique(anovaModExp$moduleLabel))))) %>% -->
-<!--   mutate(color = rep(rev(fills), each = 5)) -->
+```{r interactionModGO, fig.width=6, fig.height= 12}
+# fills <- as_tibble(rev(names(sort(table(moduleColors16.custom), decreasing = T))[anovaModExp$moduleLabel])) %>% mutate(moduleLabel = as.factor(row_number()))
 
-<!-- pME <- modulecounts16 %>% -->
-<!--   filter(moduleLabel %in% anovaModExp$moduleLabel) %>% -->
-<!--   ggplot(aes(x = timepoint, y = logCounts, color = age)) +  -->
-<!--   stat_summary(fun.data = "mean_se", size = 0.25) +  -->
-<!--   geom_smooth(method = lm, -->
-<!--               formula = y ~ splines::ns(x, df = 4), linetype = 2) + -->
-<!--   facet_wrap(~ facetLabel, scales = "free", ncol = 1) + -->
-<!--   labs(x = "Hours post inoculation", y = expression(log[2]*"(Normalized read counts)")) + -->
-<!--   theme_gray() + -->
-<!--   scale_x_continuous(breaks = c(0, 2, 4, 8, 12, 18, 24)) + -->
-<!--   theme(legend.position="left") + -->
-<!--   guides(color = guide_legend(title = "Age")) + -->
-<!--   scale_color_discrete(labels = c("8 dpp", "16 dpp")) -->
+fills <- rev(names(sort(table(moduleColors16.custom), decreasing = T))[unique(anovaModExp$moduleLabel)])
 
-<!-- gME <- ggplot_gtable(ggplot_build(pME)) -->
-<!-- stripr <- which(grepl('strip-t', gME$layout$name) & grepl("gTree", gME$grobs)) -->
+# tidyGOres <- bind_rows(GOres, .id = "moduleLabel") %>%
+#   mutate(moduleLabel = fct_relevel(moduleLabel, as.character(sort(unique(anovaModExp$moduleLabel))))) %>%
+#     left_join(fills)
 
-<!-- k <- 1 -->
+tidyGOres <- bind_rows(GOres, .id = "moduleLabel") %>%
+  mutate(moduleLabel = fct_relevel(moduleLabel, as.character(sort(unique(anovaModExp$moduleLabel))))) %>%
+  mutate(color = rep(rev(fills), each = 5))
 
-<!-- for (i in stripr) { -->
-<!--     j <- which(grepl('rect', gME$grobs[[i]]$grobs[[1]]$childrenOrder)) -->
-<!--     gME$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k] -->
-<!--     k <- k+1 -->
-<!-- } -->
+tidyGOres
 
-<!-- reorder_within <- function(x, by, within, fun = mean, sep = "___", ...) { -->
-<!--   new_x <- paste(x, within, sep = sep) -->
-<!--   stats::reorder(new_x, by, FUN = fun) -->
-<!-- } -->
-
-<!-- scale_x_reordered <- function(..., sep = "___") { -->
-<!--   reg <- paste0(sep, ".+$") -->
-<!--   ggplot2::scale_x_discrete(labels = function(x) gsub(reg, "", x), ...) -->
-<!-- } -->
+pME <- modulecounts16 %>%
+  filter(moduleLabel %in% anovaModExp$moduleLabel) %>%
+  ggplot(aes(x = timepoint, y = logCounts, color = age)) +
+  stat_summary(fun.data = "mean_se", size = 0.25) +
+  geom_smooth(method = lm,
+              formula = y ~ splines::ns(x, df = 4), linetype = 2) +
+  labs(x = "Hours post inoculation", y = expression(log[2]*"(Normalized read counts)")) +
+  # theme_gray() +
+  scale_x_continuous(breaks = c(0, 2, 4, 8, 12, 18, 24)) +
+  guides(color = guide_legend(title = "Age")) +
+  scale_color_discrete(labels = c("8 dpp", "16 dpp")) +
+     cowplot::theme_cowplot(font_size = 10) +
+    theme(strip.text = element_text(
+        colour = "grey10",
+        size = rel(0.8),
+        margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+        ),
+        plot.margin = unit(c(0, 0, 0, 0), "cm"),
+        axis.line = element_line(),
+        legend.position = "none") +
+    lemon::facet_rep_wrap(~ facetLabel, scales = "free", ncol = 1)
 
 
 
-<!-- GO_ME <- tidyGOres %>% -->
-<!--   ggplot() + -->
-<!--   geom_col(aes(y = -log10(Fisher.weight01), -->
-<!--                x = reorder_within(Term, -->
-<!--                                   by = -log10(Fisher.weight01), -->
-<!--                                   moduleLabel), -->
-<!--                fill = color)) + -->
-<!--   scale_x_reordered(position = "top") + -->
-<!--   scale_fill_identity() + -->
-<!--   facet_wrap(~ moduleLabel, scales = "free", ncol = 1) + -->
-<!--   labs(x = "", y = expression(log[10]*"(p-value)")) + -->
-<!--   coord_flip() + -->
-<!--   theme_classic() + -->
-<!--   theme(strip.background = element_rect(fill = "transparent", color = "transparent"), -->
-<!--         axis.line = element_blank(), -->
-<!--         strip.text = element_text(color = "transparent")) -->
+ gME <- ggplot_gtable(ggplot_build(pME))
+ stripr <- which(grepl('strip-t', gME$layout$name) & grepl("gTree", gME$grobs))
+
+k <- 1
+
+ for (i in stripr) {
+     j <- which(grepl('rect', gME$grobs[[i]]$grobs[[1]]$childrenOrder))
+     gME$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
+     k <- k+1
+ }
+
+ reorder_within <- function(x, by, within, fun = mean, sep = "___", ...) {
+   new_x <- paste(x, within, sep = sep)
+   stats::reorder(new_x, by, FUN = fun)
+ }
+
+ scale_x_reordered <- function(..., sep = "___") {
+   reg <- paste0(sep, ".+$")
+   ggplot2::scale_x_discrete(labels = function(x) gsub(reg, "", x), ...)
+ }
 
 
-<!-- ggpubr::ggarrange(gME, GO_ME, widths = c(1.2,1.5)) -->
-<!-- ``` -->
+ GO_ME <- tidyGOres %>%
+   ggplot() +
+   geom_col(aes(y = -log10(Fisher.weight01),
+                x = reorder_within(Term,
+                                   by = -log10(Fisher.weight01),
+                                   moduleLabel),
+                fill = color)) +
+   scale_x_reordered(position = "top") +
+   scale_fill_identity() +
+   facet_wrap(~ moduleLabel, scales = "free", ncol = 1) +
+   labs(x = "", y = expression(log[10]*"(p-value)")) +
+      cowplot::theme_cowplot(font_size = 10) +
+   theme(strip.background = element_rect(fill = "transparent", color = "transparent"),
+         axis.line = element_blank(),
+         strip.text = element_text(color = "transparent",
+                                   size = rel(0.8),
+                                   margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)),
+         plot.margin = unit(c(0, 0, 0, 0), "cm"),
+         axis.title.x = element_text(margin = margin(t = 5))) +
+   coord_flip()
+   
+# cowplot::theme_cowplot(font_size = 10) +
+#     theme(strip.text = element_text(
+#         colour = "grey10",
+#         size = rel(0.8),
+#         margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+#         ), 
+#         axis.line=element_line()
+ 
+ 
+ cowplot::plot_grid(gME, GO_ME, rel_widths = c(0.5, 1), align = "h", axis = "b")
+```
