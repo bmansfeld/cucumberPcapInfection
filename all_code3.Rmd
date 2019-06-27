@@ -2615,3 +2615,56 @@ k <- 1
  
  cowplot::plot_grid(gME, GO_ME, rel_widths = c(0.5, 1), align = "h", axis = "b")
 ```
+
+
+We can caluculate gene module membership ie the correlation between gene expression
+and the module eigengene
+```{r modMembership}
+# module membership kME is the correlation to the module eigengene and represents the association to the Module.
+geneModuleMembership16 <- as.data.frame(cor(infection16dpp, MEs16Lables, use = "p"))
+MMPvalue16 <- as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership16), 21));
+
+```
+
+look for genes of interest in module 4 and 7:
+
+Bring in contrast data from DESeq2 analysis comparing 16_Inoc_T2 vs 8_Inoc_T2
+```{r DET2}
+resT2 <- as.data.frame(lfcShrink(dds, contrast = c("condition", "16dpp_T2_Inoc", "8dpp_T2_Inoc"))) %>%
+              mutate(gene = rownames(.))
+resT2Cont <- as.data.frame(lfcShrink(dds, contrast = c("condition", "16dpp_T2_Inoc", "16dpp_T2_Cont"))) %>%
+              mutate(gene = rownames(.))
+```
+
+```{r DET4}
+resT4 <- as.data.frame(lfcShrink(dds, contrast = c("condition", "16dpp_T4_Inoc", "8dpp_T4_Inoc"))) %>%
+              mutate(gene = rownames(.))
+resT4Cont <- as.data.frame(lfcShrink(dds, contrast = c("condition", "16dpp_T4_Inoc", "16dpp_T4_Cont"))) %>%
+              mutate(gene = rownames(.))
+```
+
+```{r mergeDEs}
+resT2 <- inner_join(resT2, resT2Cont, by = "gene", suffix = c("_T2vs8", "_T2vsC"))
+resT4 <- inner_join(resT4, resT4Cont, by = "gene", suffix = c("_T4vs8", "_T4vsC"))
+
+resultsEarly <- inner_join(resT2, resT4)
+```
+
+
+```{r moduleskME}
+geneMod4 <-
+  tibble(gene = colnames(infection16dpp)[moduleLabels16 == 4]) %>%
+  mutate(
+    modMembership = abs(geneModuleMembership16[gene, "ME4"]),
+    modMemAdjPval = p.adjust(p = MMPvalue16$ME5, method = "BH")[moduleLabels16 == 4]
+  ) %>%
+  left_join(resultsEarly)
+
+geneMod7 <-
+  tibble(gene = colnames(infection16dpp)[moduleLabels16 == 7]) %>%
+  mutate(
+    modMembership = abs(geneModuleMembership16[gene, "ME7"]),
+    modMemAdjPval = p.adjust(p = MMPvalue16$ME9, method = "BH")[moduleLabels16 == 7]
+  ) %>%
+  left_join(resultsEarly)
+```
