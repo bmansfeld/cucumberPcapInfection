@@ -361,7 +361,8 @@ timeContrasts %>%
         margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
         ), 
         axis.line=element_line()) +
-    lemon::facet_rep_wrap(~ Contrast)
+    lemon::facet_rep_wrap(~ Contrast) +
+     cowplot::panel_border()
 ```
 
 ```{r goAllcoefsExp1}
@@ -608,7 +609,7 @@ vennlabels <-
         y = c(4.75, 5.5, 5.5, 4.75)
     )
 
-ggplot(data = venndf,
+T4venn <- ggplot(data = venndf,
        aes(x = (x - y) / sqrt(2),
            y = (y + x) / sqrt(2))) +
     geom_path(data = ellipses,
@@ -630,19 +631,17 @@ ggplot(data = venndf,
         aes(
             x = x,
             y = y,
-            label = gsub('_', '\n', contrast),
-            size = 1),
+            label = gsub('_', '\n', contrast)
+            ),
         color = c("#377eb8", "#984ea3", "#e41a1c", "#4daf4a"),
-        size = 3,
         fontface = "bold"
     ) +
     geom_text(
         label = venndf$count,
-        nudge_y = -0.15,
-        color = "blue",
-        size = 2.5
+        nudge_y = -0.10,
+        fontface = "bold"
     ) +
-    theme_bw() +
+    cowplot::theme_cowplot() +
     theme(
         legend.position = "none",
         axis.line = element_blank(),
@@ -656,10 +655,11 @@ ggplot(data = venndf,
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         plot.background = element_blank(),
-        plot.margin = unit(c(1, 1, 0, 1), "lines")
+        plot.margin = unit(c(0, 0, 0, 0), "cm")
     ) +
-    xlim(c(-3.5, 3.5)) +
-    ylim(0, 6)
+    scale_x_continuous(expand = expand_scale(mult = 0.1)) +
+    scale_y_continuous(expand = expand_scale(mult = 0.1)) +
+    coord_cartesian(clip = "off", expand = TRUE)
 ```
 
 GO terms of uniquely upregulated genes in 16dpp at T4vsT0
@@ -681,8 +681,6 @@ kable(exportGOtable(tgd, "Fisher.weight01", n = 10) %>%
 ```
 
 ```{r T24venn}
-source("http://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/overLapper.R") # Imports required functions.
-
 venninput <- timeContrasts %>% 
     filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
     filter(Contrast == "T24 vs T4") %>%
@@ -797,7 +795,7 @@ vennlabels <-
         y = c(4.75, 5.5, 5.5, 4.75)
     )
 
-ggplot(data = venndf,
+T24venn <- ggplot(data = venndf,
        aes(x = (x - y) / sqrt(2),
            y = (y + x) / sqrt(2))) +
     geom_path(data = ellipses,
@@ -819,19 +817,17 @@ ggplot(data = venndf,
         aes(
             x = x,
             y = y,
-            label = gsub('_', '\n', contrast),
-            size = 1),
+            label = gsub('_', '\n', contrast)
+            ),
         color = c("#377eb8", "#984ea3", "#e41a1c", "#4daf4a"),
-        size = 3,
         fontface = "bold"
     ) +
     geom_text(
         label = venndf$count,
-        nudge_y = -0.15,
-        color = "blue",
-        size = 2.5
+        nudge_y = -0.10,
+        fontface = "bold"
     ) +
-    theme_bw() +
+    cowplot::theme_cowplot() +
     theme(
         legend.position = "none",
         axis.line = element_blank(),
@@ -845,10 +841,11 @@ ggplot(data = venndf,
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         plot.background = element_blank(),
-        plot.margin = unit(c(1, 1, 0, 1), "lines")
+        plot.margin = unit(c(0, 0, 0, 0), "cm")
     ) +
-    xlim(c(-3.5, 3.5)) +
-    ylim(0, 6)
+    scale_x_continuous(expand = expand_scale(mult = 0.1)) +
+    scale_y_continuous(expand = expand_scale(mult = 0.1)) +
+    coord_cartesian(clip = "off", expand = TRUE)
 
 ```
 
@@ -862,8 +859,6 @@ kable(exportGOtable(tgd, "Fisher.weight01", n = 10) %>%
 ```
 
 ```{r T48venn}
-source("http://faculty.ucr.edu/~tgirke/Documents/R_BioCond/My_R_Scripts/overLapper.R") # Imports required functions.
-
 venninput <- timeContrasts %>% 
     filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
     filter(Contrast == "T48 vs T24") %>%
@@ -964,6 +959,7 @@ ellipses$contrast <-
         ),
         each = 361
     ))
+
 vennlabels <-
     data.frame(
         contrast = factor(
@@ -978,7 +974,7 @@ vennlabels <-
         y = c(4.75, 5.5, 5.5, 4.75)
     )
 
-ggplot(data = venndf,
+T48venn <- ggplot(data = venndf,
        aes(x = (x - y) / sqrt(2),
            y = (y + x) / sqrt(2))) +
     geom_path(data = ellipses,
@@ -1000,19 +996,17 @@ ggplot(data = venndf,
         aes(
             x = x,
             y = y,
-            label = gsub('_', '\n', contrast),
-            size = 1),
+            label = gsub('_', '\n', contrast)
+            ),
         color = c("#377eb8", "#984ea3", "#e41a1c", "#4daf4a"),
-        size = 3,
         fontface = "bold"
     ) +
     geom_text(
         label = venndf$count,
-        nudge_y = -0.15,
-        color = "blue",
-        size = 2.5
+        nudge_y = -0.10,
+        fontface = "bold"
     ) +
-    theme_bw() +
+    cowplot::theme_cowplot() +
     theme(
         legend.position = "none",
         axis.line = element_blank(),
@@ -1026,10 +1020,18 @@ ggplot(data = venndf,
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         plot.background = element_blank(),
-        plot.margin = unit(c(1, 1, 0, 1), "lines")
+        plot.margin = unit(c(0, 0, 0, 0), "cm")
     ) +
-    xlim(c(-3.5, 3.5)) +
-    ylim(0, 6)
+    scale_x_continuous(expand = expand_scale(mult = 0.1)) +
+    scale_y_continuous(expand = expand_scale(mult = 0.1)) +
+    coord_cartesian(clip = "on", expand = TRUE)
+  
+```
+
+
+```{r allvenns, fig.height=10, fig.width=5}
+cowplot::plot_grid(T4venn, T24venn, T48venn, 
+                   labels = "AUTO", align = "h", ncol = 1)
 ```
 
 
@@ -1546,15 +1548,16 @@ lodesTC%>%
                              size = 3, 
                              nudge_y = 100,
                              aes(label = ifelse(stratumSize <= 100, number,NA))) +
-    #scale_color_brewer(type = "diver", palette = "Set1") +
+    scale_color_manual(values = c("#ef8a62", "#f7f7f7", "#67a9cf")) +
     cowplot::theme_cowplot() +
-    theme(strip.text =         element_text(
+    theme(strip.text = element_text(
         colour = "grey10",
         size = rel(0.8),
-        margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+        # margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
         ), 
         legend.position = "bottom") +
-    lemon::facet_rep_wrap(~ Age)
+    lemon::facet_rep_wrap(~ Age) +
+    cowplot::panel_border()
 ```
 
 ## Weighted gene co-expression analysis
@@ -2311,7 +2314,8 @@ p1 <- moduleExp16 %>%
         size = rel(0.8),
         margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
         ),
-        legend.position="bottom")
+        legend.position="bottom") +
+    cowplot::panel_border()
 
 
 g1 <- ggplot_gtable(ggplot_build(p1))
@@ -2557,7 +2561,8 @@ pME <- modulecounts16 %>%
         plot.margin = unit(c(0, 0, 0, 0), "cm"),
         axis.line = element_line(),
         legend.position = "none") +
-    lemon::facet_rep_wrap(~ facetLabel, scales = "free", ncol = 1)
+    lemon::facet_rep_wrap(~ facetLabel, scales = "free", ncol = 1) +
+    cowplot::panel_border()
 
 
 
@@ -2623,7 +2628,6 @@ and the module eigengene
 # module membership kME is the correlation to the module eigengene and represents the association to the Module.
 geneModuleMembership16 <- as.data.frame(cor(infection16dpp, MEs16Lables, use = "p"))
 MMPvalue16 <- as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership16), 21));
-
 ```
 
 look for genes of interest in module 4 and 7:
@@ -2653,21 +2657,35 @@ resultsEarly <- inner_join(resT2, resT4)
 
 ```{r moduleskME}
 geneMod4 <-
-  tibble(gene = colnames(infection16dpp)[moduleLabels16 == 4]) %>%
+  tibble(gene = colnames(infection16dpp),
+         moduleLable = moduleLabels16) %>%
   mutate(
     modMembership = abs(geneModuleMembership16[gene, "ME4"]),
-    modMemAdjPval = p.adjust(p = MMPvalue16$ME5, method = "BH")[moduleLabels16 == 4]
+    modMemAdjPval = p.adjust(p = MMPvalue16$ME4, method = "BH") # [moduleLabels16 == 4]
   ) %>%
   left_join(resultsEarly)
 
 geneMod7 <-
-  tibble(gene = colnames(infection16dpp)[moduleLabels16 == 7]) %>%
+  tibble(gene = colnames(infection16dpp),
+         moduleLable = moduleLabels16) %>%
   mutate(
     modMembership = abs(geneModuleMembership16[gene, "ME7"]),
-    modMemAdjPval = p.adjust(p = MMPvalue16$ME9, method = "BH")[moduleLabels16 == 7]
+    modMemAdjPval = p.adjust(p = MMPvalue16$ME7, method = "BH") # [moduleLabels16 == 7]
   ) %>%
-  left_join(resultsEarly)
+    left_join(resultsEarly)
 ```
+
+<!-- ```{r geneMod7} -->
+<!-- moduleLabels16[which(colnames(infection16dpp) == "Csa6G160180")] -->
+
+<!-- geneModuleMembership16["Csa6G160180", c("ME1", "ME7", "ME4")] -->
+
+<!-- geneMod7 %>%  -->
+<!--     filter(gene == "Csa6G160180") %>%  -->
+<!--     kableExtra::kable(format="latex", booktabs=TRUE) %>% -->
+<!--   kable_styling(latex_options="scale_down") -->
+
+<!-- ``` -->
 
 ```{r mod_filt}
 geneMod4_filt <- geneMod4 %>% 
@@ -2717,23 +2735,144 @@ geneMod7_filt <- geneMod7 %>%
   separate(Annotation, into = c("Match Name", "E-value", "Identity", "Description"), sep = "__")
 
 
-mod5and9GOIs <- bind_rows("Mod5" = geneMod4_filt, "Mod9" = geneMod7_filt, .id = "Module")
+mod4and7GOIs <- bind_rows("Mod. R4" = geneMod4_filt, "Mod. R7" = geneMod7_filt, .id = "Module") %>%
+    arrange(desc(modMembership)) %>%
+    distinct(gene, .keep_all = TRUE) %>%
+    arrange(Module, desc(modMembership))
 
-kableExtra::kable(mod5and9GOIs %>% 
+
+kableExtra::kable(mod4and7GOIs %>% 
                     dplyr::select(-`Match Name`, -`E-value`, -Identity, -Description), format="latex", booktabs=TRUE) %>%
   kable_styling(latex_options="scale_down")
 
+write.csv(mod4and7GOIs, file = "Modules_4_7_GOIs.csv")
 
-kableExtra::kable(mod5and9GOIs %>% 
+kableExtra::kable(mod4and7GOIs %>% 
                     dplyr::select(Module, gene, `Match Name`, `E-value`, Identity, Description), 
                   format="latex", booktabs=TRUE) %>%
   kable_styling(latex_options="scale_down")
 
 
 
-kableExtra::kable(mod5and9GOIs %>% 
+kableExtra::kable(mod4and7GOIs %>% 
                       dplyr::select(Module, gene, modMembership, Description, -passT2, -passT4, -`Match Name`, -`E-value`, -Identity, -Description, everything()), 
                   format="latex", booktabs=TRUE, digits = 20) %>%
   kable_styling(latex_options="scale_down")
 ```
 
+
+```{r plotMod5GOIs, fig.height=10, fig.width = 7}
+moduleCount <- 
+  as.data.frame(counts(dds[colnames(infection16dpp), ], normalized = TRUE)) %>% 
+  mutate(gene = rownames(.),
+         module = moduleColors16.custom,
+         moduleLabel = moduleLabels16) %>%
+  gather("sample", "counts",-gene, -module, -moduleLabel) %>% 
+  mutate(age = rep(dds$age, each = ncol(infection16dpp)),
+         timepoint = rep(str_remove(dds$timepoint, "T"), each =  ncol(infection16dpp)),
+         treatment = rep(dds$treatment, each =  ncol(infection16dpp))
+  ) %>%
+  left_join(., as_tibble(table(moduleColors16.custom)), by = c("module" = "moduleColors16.custom")) %>%
+  mutate(timepoint = as.numeric(timepoint),
+         module = fct_infreq(module),
+         facetLabel = fct_infreq(paste0(moduleLabel, " (n=", n,")"))
+  ) 
+
+
+geneplot <- moduleCount %>%
+  # filter(gene %in% mod4and7GOIs$gene) %>% 
+  right_join(., mod4and7GOIs, by = "gene") %>%
+  mutate(gene = fct_reorder(gene, .x = modMembership, .fun = "max", .desc = TRUE)) %>%
+  ggplot() +
+  stat_summary(
+    fun.y = mean,
+    geom = "line",
+    aes(
+      x = timepoint,
+      y = counts,
+      color = age,
+      linetype = treatment
+    )
+  ) +
+  stat_summary(fun.data = "mean_se", geom = "errorbar",
+    aes(
+      x = timepoint,
+      y = counts,
+      group = paste(age, treatment)
+    ),
+    color = rep(rep(c("#00BFC4", "#00BFC4", "#F8766D", "#F8766D"), each = 7), 
+                length(unique(mod4and7GOIs$gene)))
+  ) +
+  scale_x_continuous(breaks = c(0, 2, 4, 8, 12, 18, 24)) +
+  labs(x = "Hours post inoculation", y = "Normalized read count") +
+  cowplot::theme_cowplot(font_size = 10) +
+    theme(strip.text =         element_text(
+        colour = "grey10",
+        size = rel(0.8) #,
+        #margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+        ), 
+        legend.position = "bottom") +
+    facet_wrap(Module ~ gene, scales = "free", ncol = 5) +
+    guides(linetype = guide_legend(title="Treatment"), 
+         color = guide_legend(title = "Age")) +
+  scale_linetype_discrete(labels = c("Control", "Inoculated")) +
+  scale_color_discrete(labels = c("8 dpp", "16 dpp")) +
+  theme(legend.position=c(0.85, 0.05), 
+        legend.box = 'vertical',
+        legend.margin = margin(t = -5)) +
+    cowplot::panel_border()
+
+g <- ggplot_gtable(ggplot_build(geneplot))
+stripr <- which(grepl('strip-t', g$layout$name) & grepl("gTree", g$grobs))
+
+
+# fills <- names(sort(table(moduleColors8.custom), decreasing = T))[unlist(rev(split(1:length(fills), ceiling(seq_along(1:length(fills))/5))), use.names = F)]
+# 
+fills <- names(sort(table(moduleColors16.custom), decreasing = T))[c(rep(7, 14), rep(4, 2), rep(7, 3), rep(4, 15))]
+
+k <- 1
+
+for (i in stripr) {
+    j <- which(grepl('rect', g$grobs[[i]]$grobs[[1]]$childrenOrder))
+    g$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
+    k <- k+1
+}
+grid::grid.draw(g)
+```
+
+
+```{r plotGOIexp, fig.width=8}
+moduleCount %>%
+   right_join(., mod4and7GOIs, by = "gene") %>%
+   mutate(gene = fct_reorder(gene, .x = modMembership, .fun = "max", .desc = TRUE)) %>%
+  filter(gene %in% c("Csa1G025960", "Csa4G049610", "Csa6G160180")) %>% 
+  ggplot() +
+  stat_summary(
+    fun.y = mean,
+    geom = "line",
+    aes(
+      x = timepoint,
+      y = counts,
+      color = age,
+      linetype = treatment
+    )
+  ) +
+  stat_summary(fun.data = "mean_se", geom = "errorbar",
+    aes(
+      x = timepoint,
+      y = counts,
+      group = paste(age, treatment)
+    ),
+    color = rep(rep(c("#00BFC4", "#00BFC4", "#F8766D", "#F8766D"), each = 7), 3)
+  ) +
+  scale_x_continuous(breaks = c(0, 2, 4, 8, 12, 18, 24)) +
+  labs(x = "Hours post inoculation", y = "Normalized read count") +
+  theme_gray() +
+  facet_wrap( ~ gene, scales = "free", ncol = 5) +
+  guides(linetype = guide_legend(title="Treatment"), 
+         color = guide_legend(title = "Age")) +
+  scale_linetype_discrete(labels = c("Control", "Inoculated")) +
+  scale_color_discrete(labels = c("8 dpp", "16 dpp")) +
+  theme(legend.position="bottom")
+
+```
