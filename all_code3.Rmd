@@ -50,6 +50,34 @@ library(splines)
 library(rvest)
 ```
 
+```{r goTermsFuncs, echo=FALSE, message=FALSE, warning=FALSE}
+source("topGO functions.R")
+library(topGO)
+CukeGO <- read.csv(file = "CukeGO.csv", header = TRUE, stringsAsFactors = FALSE)
+
+#prepare as named list for use with topGO
+GOList<-setNames(nm = CukeGO$X, strsplit(CukeGO$GOTerm, "; "))
+
+moduleGOterms <- function(network = "16dpp", mod, nodeSize = 500, n = 500, cutoff = 0.05) {
+    if (network == "16dpp") {
+        genesInMod <- rownames((vst[colnames(infection16dpp)[moduleLabels16 %in% mod], ]))
+
+    } else {
+        genesInMod <- rownames((vst[colnames(infection8dpp)[moduleLabels8 %in% mod], ]))
+    }
+
+  tgd <- runTopGoAnalysis(DEgeneSet = genesInMod, dds = vst, GOdb = GOList, onts = "BP", nodeSize = nodeSize)
+
+  GO <- exportGOtable(tgd, "Fisher.weight01", n = n) %>%
+      mutate(Fisher.weight01 = ifelse(Fisher.weight01 == "< 1e-30", "1e-30", Fisher.weight01)) %>%
+    mutate(Fisher.weight01 = as.numeric(Fisher.weight01))
+
+  # subset(GO, Fisher.weight01 < cutoff)
+  GO
+}
+
+```
+
 # Transcriptome Experiment 1
 
 ## Salmon mapping 
@@ -353,16 +381,18 @@ timeContrasts %>%
     geom_bar(position = "dodge") +
     geom_text(stat = 'count', aes(label = ..count..), vjust = -0.5, position = position_dodge(0.90)) +
     # facet_wrap(~ Contrast) +
-    ylab("Number of DEGs") +
-    cowplot::theme_cowplot() +
-    theme(strip.text =         element_text(
+    scale_y_continuous(expand = expand_scale(mult = c(0.05, 0.1)), name = "Number of DEGs") + 
+    cowplot::theme_cowplot(font_size = 14) +
+    theme(strip.text = element_text(
         colour = "grey10",
         size = rel(0.8),
-        margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
-        ), 
+        margin = margin(0.5 * 7, 0.5 * 7, 0.5 * 7, 0.5 * 7)
+        ),
+        legend.position = c(0.825, 0.875),
         axis.line=element_line()) +
     lemon::facet_rep_wrap(~ Contrast) +
      cowplot::panel_border()
+    
 ```
 
 ```{r goAllcoefsExp1}
@@ -1334,22 +1364,6 @@ txiAll <- tximport(files, type = "salmon", tx2gene = tx2gene, dropInfReps = TRUE
 
 ddsTxiAll <- DESeqDataSetFromMatrix(round(txiAll$counts), colData = samples, design = ~ condition)
 
-# Hist of total reads per gene
-tibble(totalReads = rowSums(counts(ddsTxiAll))) %>%
-ggplot() +
-  geom_histogram(aes(x = totalReads), binwidth = 50) +
-  xlim(0,500)
-
-# as_tibble(counts(ddsTxiAll)) %>%
-#   mutate(gene = rownames(ddsTxiAll)) %>%
-#   gather(key = "sample", value = "count", -gene) %>%
-#   mutate(age = rep(ddsTxiAll$age, each = nrow(ddsTxiAll)),
-#          timepoint = rep(ddsTxiAll$timepoint, each = nrow(ddsTxiAll)),
-#          treatment = rep(ddsTxiAll$treatment, each = nrow(ddsTxiAll)),
-#            ) %>%
-#   group_by(gene, age, timepoint, treatment) %>%
-#   summarise(mean(count))
-
 # filter low expression genes: genes were 75 samples have less than 5 reads
 ddsTxiAll_filt <- ddsTxiAll[rowSums(counts(ddsTxiAll) <= 5) < 75, ]
 ```
@@ -1486,7 +1500,6 @@ Alluvial plots for all DE genes
 
 ```{r plotAlluvial, fig.height=6, fig.width=9}
 lodesTC <- timeContrasts %>%
-    #filter(!is.na(padj)) %>%
     mutate(Direction = case_when(
         padj < 0.05 & log2FoldChange >= 1 ~ "Up",
         padj < 0.05 & log2FoldChange <= -1 ~ "Down",
@@ -1505,7 +1518,12 @@ lodesTC <- timeContrasts %>%
     group_by(Age, flow) %>%
     summarise(freq = n()) %>% 
     separate(col = flow, into = c("T2", "T4", "T8", "T12", "T18", "T24")) %>% 
-    mutate(first = T4, second = T8, third = T12, forth = T18, fifth = T24, sixth = T24) %>%
+    mutate(first = T4, 
+           second = T8, 
+           third = T12, 
+           forth = T18, 
+           fifth = T24, 
+           sixth = T24) %>%
     to_lodes_form(key = "Contrast", axes = 2:7) %>% 
     mutate(diffExp = fct_relevel(stratum, "Up", "notDE")) %>%
     mutate(flowColor = case_when(
@@ -1543,27 +1561,66 @@ lodesTC%>%
               size = 3, 
               position = position_nudge(y = 0)) +
     labs(x = "Timepoint vs. Control", y = "Number of genes") +
-    scale_fill_brewer(type = "qual", palette = "Set1", name = "Differential expression") +
+    scale_fill_manual(values = c("#fc8d62", "#8da0cb", "#66c2a5"), 
+                      breaks = c("Up", "notDE", "Down"),
+                      name = "Differential\nexpression") +
     ggrepel::geom_text_repel(stat = "stratum", 
                              size = 3, 
                              nudge_y = 100,
-                             aes(label = ifelse(stratumSize <= 100, number,NA))) +
-    scale_color_manual(values = c("#ef8a62", "#f7f7f7", "#67a9cf")) +
-    cowplot::theme_cowplot() +
-    theme(strip.text = element_text(
-        colour = "grey10",
-        size = rel(0.8),
-        # margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
-        ), 
-        legend.position = "bottom") +
+                             aes(label = ifelse(stratumSize <= 100, 
+                                                number, 
+                                                NA
+                                                )
+                                 )
+                             ) +
+    cowplot::theme_cowplot(font_size = 14) +
+    theme(strip.text = element_text(colour = "grey10",
+                                    size = rel(0.8),
+                                    margin = margin(0.5 * 7, 
+                                                    0.5 * 7, 
+                                                    0.5 * 7, 
+                                                    0.5 * 7)
+                                    ), 
+          legend.position = c(0.85, 0.85)
+          ) +
     lemon::facet_rep_wrap(~ Age) +
     cowplot::panel_border()
+```
+
+Get some summary numbers for alluvial results
+
+```{r alluvial_nums}
+# upregulated genes at 4 hpi and are continuously upregulated in every subsequent timepoint
+lodesTC %>% 
+    filter(Age == "8dpp", Contrast == "T4", diffExp == "Up") %>% 
+    filter_at(.vars = c("second","third", "forth", "fifth", "sixth"), 
+              all_vars(. == "Up")) %>% 
+    summarize(sum(freq))
+
+# how many of the upregulated 8dpp genes are newly upregulated at T24
+lodesTC %>% 
+    filter(Age == "8dpp", Contrast == "T24", diffExp == "Up") %>% 
+    filter_at(.vars = c("second","third", "forth"), all_vars(. != "Up")) %>% 
+    summarise(sum(freq))
+
+# how many 16 dpp genes upregulated at 4 hpi, are not differentially expressed at 8 hpi 
+lodesTC %>% 
+    filter(Age == "16dpp", Contrast == "T4", diffExp == "Up", second != "Up") %>% 
+    summarise(sum(freq))
+
+# how many continuously upregulated through 24 hpi
+lodesTC %>% 
+    filter(Age == "16dpp", Contrast == "T4", diffExp == "Up") %>% 
+    filter_at(.vars = c("second","third", "forth", "fifth", "sixth"), 
+              all_vars(. == "Up")) %>% 
+    summarize(sum(freq))
+
 ```
 
 ## Weighted gene co-expression analysis
 
 Just as a check we will compare the experiments using pca
-```{r compareExp}
+```{r compareExp, fig.height=9, fig.width=6}
 vst_48hrs <- vst(dds_exp1, blind = TRUE)
 vst_48hrs <- vst_48hrs[, vst_48hrs$timepoint != "T48"]
 
@@ -1583,18 +1640,6 @@ both_8dpp <- cbind(assay(vst_filt_8dpp), assay(vst_48hrs_8dpp))
 both_16dpp <- cbind(assay(vst_filt_16dpp), assay(vst_48hrs_16dpp))
 bothAges <- cbind(both_8dpp, both_16dpp)
 
-as.data.frame(prcomp(t(both_8dpp))$x) %>%
-  mutate(sample = rownames(.),
-         timepoint = fct_relevel(str_extract(sample, pattern = "T[0-9]*"), "T24", after = Inf),
-         exp = c(rep("1", 9), rep("2", 9))) %>%
-  ggplot(aes(x = PC2, y = PC3)) + geom_point(aes(color = timepoint, shape = exp))
-
-as.data.frame(prcomp(t(both_16dpp))$x) %>%
-  mutate(sample = rownames(.),
-         timepoint = fct_relevel(str_extract(sample, pattern = "T[0-9]*"), "T24", after = Inf),
-         exp = c(rep("1", 9), rep("2", 9))) %>%
-  ggplot(aes(x = PC2, y = PC3)) + geom_point(aes(color = timepoint, shape = exp))
-
 as.data.frame(prcomp(t(bothAges))$x) %>%
   mutate(sample = rownames(.),
          timepoint = fct_relevel(str_extract(sample, pattern = "T[0-9]*"), "T24", after = Inf),
@@ -1602,14 +1647,17 @@ as.data.frame(prcomp(t(bothAges))$x) %>%
          age = rep(c("8dpp", "16dpp"), each = 18)
            ) %>%
   ggplot(aes(x = PC2, y = PC3)) + 
-      geom_point(aes(color = timepoint, shape = exp, size = age)) +
-      scale_size_manual(values = c(1,3)) +
-    cowplot::theme_cowplot() +
-    theme(strip.text =         element_text(
+    geom_point(aes(color = timepoint, shape = exp), size = 2) +
+    cowplot::theme_cowplot(font_size = 14) +
+    theme(
+        strip.text = element_text(
         colour = "grey10",
         size = rel(0.8),
-        margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
-        ))
+        margin = margin(0.5 * 7, 0.5 * 7, 0.5 * 7, 0.5 * 7)
+        )) + 
+    lemon::facet_rep_wrap(~ age, scales = "free", ncol = 1) +
+    cowplot::panel_border()
+    
 ```
 
 We then separate the samples in to the relevant networks
@@ -1693,6 +1741,8 @@ sampleTree16 <- hclust(dist(infection16dpp), method = "average")
 sampleTree8 <- hclust(dist(infection8dpp), method = "average")
 ```
 
+Looks like all are good to include in the analysis
+
 ```{r plotSamplesDendro}
 par(cex = 0.6);
 par(mar = c(0,4,2,0))
@@ -1703,10 +1753,10 @@ plot(sampleTree8, main = "Sample clustering to detect outliers 8dpp", sub="", xl
      cex.axis = 1.5, cex.main = 2)
 ```
 
-
 Calculate scale free topology to try to choose the best power for adjacency calculation
 We are using signed networks and the bicor correlation function.
-```{r idPowers, message=FALSE, warning=FALSE}
+
+```{r idPowers, message=FALSE, warning=FALSE,results=FALSE}
 # Choose a set of soft-thresholding powers
 powers <- c(c(1:10), seq(from = 12, to=30, by=2))
 # Call the network topology analysis function
@@ -2203,8 +2253,6 @@ networkLodes <- as.data.frame(overlapTable(moduleLabels16, moduleLabels8)$countT
            alluvium = Cohort
          )) +
     geom_stratum(aes(fill = module, color = module)) +
-    #scale_fill_identity() +
-    #scale_color_identity() +
     scale_alpha_manual(values=c(0.25, 1)) +
     ggnewscale::new_scale_fill() +
     ggnewscale::new_scale_color() +
@@ -2230,7 +2278,8 @@ networkLodes <- as.data.frame(overlapTable(moduleLabels16, moduleLabels8)$countT
                        name = "Number of genes") +
     scale_x_discrete(labels = c("8dpp" = "Susceptible\nmodules\n(8dpp)", 
                                 "16dpp" = "Resistant\nmodules\n(16dpp)")) +
-    theme(legend.direction = "horizontal", legend.position = c(0.225, 0.1))
+     cowplot::theme_cowplot(font_size = 14) +
+    theme(legend.direction = "horizontal", legend.position = c(0.05, 0.1))
 
 ```
 
@@ -2312,7 +2361,7 @@ p1 <- moduleExp16 %>%
     theme(strip.text = element_text(
         colour = "grey10",
         size = rel(0.8),
-        margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+        margin = margin(0.5 * 7, 0.5 * 7, 0.5 * 7, 0.5 * 7)
         ),
         legend.position="bottom") +
     cowplot::panel_border()
@@ -2335,59 +2384,83 @@ for (i in stripr) {
 grid::grid.draw(g1)
 ```
 
-```{r plotModExp16only16, fig.height=8, fig.width = 7}
-p_only16 <- moduleExp16 %>%
-  filter(!moduleLabel == 0) %>%
-  ggplot() + 
-  stat_summary(data = filter(moduleExp16, treatment == "Inoc" & age == "16dpp", moduleLabel != 0), fun.data = mean_se, geom = "ribbon", aes(x = timepoint, y = counts), alpha = 0.2, fill = "#00BFC4") +
-  stat_summary(data = filter(moduleExp16, treatment == "Inoc" & age == "8dpp", moduleLabel != 0), fun.data = mean_se, geom = "ribbon", aes(x = timepoint, y = counts), alpha = 0.0) +
-  stat_summary(data = filter(moduleExp16, treatment == "Cont", moduleLabel != 0), fun.data = mean_se, geom = "ribbon", aes(x = timepoint, y = counts, fill = age), alpha = 0.0) +
-  scale_alpha_manual(values = c(0, 1)) +
-  stat_summary(data = filter(moduleExp16, treatment == "Inoc", moduleLabel != 0), fun.y = mean, geom = "line", aes(x = timepoint, y = counts, color = age, alpha = age, linetype = treatment), size = 1) +
-  stat_summary(data = filter(moduleExp16, treatment == "Cont", moduleLabel != 0), fun.y = mean, geom = "line", aes(x = timepoint, y = counts, color = age, linetype = treatment), size = 1,  alpha = 0) +
-  stat_summary(data = filter(moduleExp16, treatment == "Inoc" & age == "16dpp", moduleLabel != 0),
-    fun.y = mean,
-    geom = "point",
-    aes(
-      x = timepoint,
-      y = counts,
-      group = paste0(age, treatment)
-    ), shape = 16,
-    size = 2,
-    color = rep(rep(c("#00BFC4"), each = 7), length(modSubset))
-  ) +
-  facet_wrap(~ facetLabel, scales = "free", ncol = 5) +
-  scale_x_continuous(breaks = c(0, 2, 4, 8, 12, 18, 24)) +
-  labs(x = "Hours post inoculation", y = "Variance stabilizing transformed read count") +
-  guides(linetype = guide_legend(title="Treatment"), 
-         color = guide_legend(title = "Age"),
-         fill = guide_legend(title = "Age")) +
-  scale_linetype_discrete(labels = c("Control", "Inoculated")) +
-  scale_color_discrete(labels = c("8 dpp", "16 dpp")) +
-  scale_fill_discrete(labels = c("8 dpp", "16 dpp")) +
-  theme_gray() +
-  theme(legend.position="bottom")
+<!-- ```{r plotModExp16only16, fig.height=8, fig.width = 7} -->
+<!-- p_only16 <- moduleExp16 %>% -->
+<!--   filter(!moduleLabel == 0) %>% -->
+<!--   ggplot() +  -->
+<!--   stat_summary(data = filter(moduleExp16, treatment == "Inoc" & age == "16dpp", moduleLabel != 0), fun.data = mean_se, geom = "ribbon", aes(x = timepoint, y = counts), alpha = 0.2, fill = "#00BFC4") + -->
+<!--   stat_summary(data = filter(moduleExp16, treatment == "Inoc" & age == "8dpp", moduleLabel != 0), fun.data = mean_se, geom = "ribbon", aes(x = timepoint, y = counts), alpha = 0.0) + -->
+<!--   stat_summary(data = filter(moduleExp16, treatment == "Cont", moduleLabel != 0), fun.data = mean_se, geom = "ribbon", aes(x = timepoint, y = counts, fill = age), alpha = 0.0) + -->
+<!--   scale_alpha_manual(values = c(0, 1)) + -->
+<!--   stat_summary(data = filter(moduleExp16, treatment == "Inoc", moduleLabel != 0), fun.y = mean, geom = "line", aes(x = timepoint, y = counts, color = age, alpha = age, linetype = treatment), size = 1) + -->
+<!--   stat_summary(data = filter(moduleExp16, treatment == "Cont", moduleLabel != 0), fun.y = mean, geom = "line", aes(x = timepoint, y = counts, color = age, linetype = treatment), size = 1,  alpha = 0) + -->
+<!--   stat_summary(data = filter(moduleExp16, treatment == "Inoc" & age == "16dpp", moduleLabel != 0), -->
+<!--     fun.y = mean, -->
+<!--     geom = "point", -->
+<!--     aes( -->
+<!--       x = timepoint, -->
+<!--       y = counts, -->
+<!--       group = paste0(age, treatment) -->
+<!--     ), shape = 16, -->
+<!--     size = 2, -->
+<!--     color = rep(rep(c("#00BFC4"), each = 7), length(modSubset)) -->
+<!--   ) + -->
+<!--   facet_wrap(~ facetLabel, scales = "free", ncol = 5) + -->
+<!--   scale_x_continuous(breaks = c(0, 2, 4, 8, 12, 18, 24)) + -->
+<!--   labs(x = "Hours post inoculation", y = "Variance stabilizing transformed read count") + -->
+<!--   guides(linetype = guide_legend(title="Treatment"),  -->
+<!--          color = guide_legend(title = "Age"), -->
+<!--          fill = guide_legend(title = "Age")) + -->
+<!--   scale_linetype_discrete(labels = c("Control", "Inoculated")) + -->
+<!--   scale_color_discrete(labels = c("8 dpp", "16 dpp")) + -->
+<!--   scale_fill_discrete(labels = c("8 dpp", "16 dpp")) + -->
+<!--   theme_gray() + -->
+<!--   theme(legend.position="bottom") -->
 
-g1 <- ggplot_gtable(ggplot_build(p_only16))
-stripr <- which(grepl('strip-t', g1$layout$name) & grepl("gTree", g1$grobs))
-                
-fills <- names(sort(table(moduleColors16.custom), decreasing = T))
-fills <- names(sort(table(moduleColors16.custom), decreasing = T))[unlist(rev(split(1:length(fills), ceiling(seq_along(1:length(fills))/5))), use.names = F)]
+<!-- g1 <- ggplot_gtable(ggplot_build(p_only16)) -->
+<!-- stripr <- which(grepl('strip-t', g1$layout$name) & grepl("gTree", g1$grobs)) -->
+
+<!-- fills <- names(sort(table(moduleColors16.custom), decreasing = T)) -->
+<!-- fills <- names(sort(table(moduleColors16.custom), decreasing = T))[unlist(rev(split(1:length(fills), ceiling(seq_along(1:length(fills))/5))), use.names = F)] -->
 
 
+<!-- k <- 1 -->
+
+<!-- for (i in stripr) { -->
+<!--     j <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder)) -->
+<!--     g1$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k] -->
+<!--     k <- k+1 -->
+<!-- } -->
+<!-- grid::grid.draw(g1) -->
+<!-- ``` -->
+
+Export GO term enrichment results for Resistant network modules
+
+```{r exportGO, message=FALSE, warning=FALSE}
+GOres <- list()
 k <- 1
-
-for (i in stripr) {
-    j <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
-    g1$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
-    k <- k+1
+for (i in 1:max(modSubset)) {
+GOres[[k]] <- moduleGOterms(
+  network = "16dpp",
+  mod = i,
+  nodeSize = 100,
+  n = 500
+  ) %>% filter(Fisher.weight01 < 0.05)
+k <- k + 1
 }
-grid::grid.draw(g1)
+
+names(GOres) <- paste0("Module R", 1:max(modSubset))
+```
+```{r output}
+library(writexl)
+
+write_xlsx(GOres, "Resistant_Modules_GO_Enrichment.xlsx", col_names = T)
+
 ```
 
+Arrange the read count data in tidy format and add module numbers and log counts
 
 ```{r tidyExp}
-
 modulecounts16 <- 
   as.data.frame(counts(dds[colnames(infection16dpp), ], normalized = T)) %>% 
   mutate(gene = rownames(.),
@@ -2463,35 +2536,6 @@ for (i in stripr) {
 grid::grid.draw(gME)
 
 ```
-
-```{r goTermsFuncs, echo=FALSE, message=FALSE, warning=FALSE}
-source("topGO functions.R")
-library(topGO)
-CukeGO <- read.csv(file = "CukeGO.csv", header = TRUE, stringsAsFactors = FALSE)
-
-#prepare as named list for use with topGO
-GOList<-setNames(nm = CukeGO$X, strsplit(CukeGO$GOTerm, "; "))
-
-moduleGOterms <- function(network = "16dpp", mod, nodeSize = 500, n = 500, cutoff = 0.05) {
-    if (network == "16dpp") {
-        genesInMod <- rownames((vst[colnames(infection16dpp)[moduleLabels16 %in% mod], ]))
-
-    } else {
-        genesInMod <- rownames((vst[colnames(infection8dpp)[moduleLabels8 %in% mod], ]))
-    }
-
-  tgd <- runTopGoAnalysis(DEgeneSet = genesInMod, dds = vst, GOdb = GOList, onts = "BP", nodeSize = nodeSize)
-
-  GO <- exportGOtable(tgd, "Fisher.weight01", n = n) %>%
-      mutate(Fisher.weight01 = ifelse(Fisher.weight01 == "< 1e-30", "1e-30", Fisher.weight01)) %>%
-    mutate(Fisher.weight01 = as.numeric(Fisher.weight01))
-
-  subset(GO, Fisher.weight01 < cutoff)
-  GO
-}
-
-```
-
 
 Which modules have an interaction in the first or second spline portions
 ```{r firstspline}
