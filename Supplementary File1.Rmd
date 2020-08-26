@@ -1,8 +1,7 @@
 ---
-title: Developmentally regulated defense rapidly inhibits *Phytophthora capsici* infection
-  in cucumber fruit.
+title: Developmentally regulated activation of defense allows for rapid inhibition of infection in age-related resistance to *Phytophthora capsici* in cucumber fruit
 author: "Ben N. Mansfeld, Marivi Colle, Chunqiu Zhang, Ying-Chen Lin, Rebecca Grumet"
-date: "9/14/2019"
+date: "04/07/2019"
 header-includes:
 - \usepackage{booktabs}
 - \usepackage{longtable}
@@ -26,7 +25,9 @@ subtitle: 'Supplementary File 1: Analysis workflow'
 knitr::opts_chunk$set(
 	echo = TRUE,
 	fig.align = "center",
-	cache = TRUE
+	cache = TRUE,
+    warning = FALSE, 
+	message = FALSE
 )
 ```
 
@@ -226,7 +227,7 @@ df_summary %>%
 Figure 1:
 
 ```{r fig1, fig.width=7, fig.height=9}
-mic <- cowplot::ggdraw() + cowplot::draw_image(image = "fluMic.png")
+mic <- cowplot::ggdraw() + cowplot::draw_image(image = "fluMic2.png")
 poin <- cowplot::ggdraw() + cowplot::draw_image(image = "poinsett.png")
 
 cowplot::plot_grid(drPlot, poin, mic, 
@@ -235,7 +236,7 @@ cowplot::plot_grid(drPlot, poin, mic,
                    rel_heights = c(3, 1.5, 1.8))
 
 
-pdf(file = "fig1.pdf", width = 7, 9)
+pdf(file = "fig1.pdf", width = 6.69, 8.85)
 cowplot::plot_grid(drPlot, poin, mic, 
                    ncol = 1, 
                    labels = "AUTO", 
@@ -512,6 +513,30 @@ colnames(mat) <-  colData(rld)$sampleNO
 #hmcol <- colorRampPalette(brewer.pal(9, "Blues"))(255)
 pheatmap(mat)
 
+```
+
+Comparison of 8 dpp and 16 dpp T0 - uninoculated fruit:
+
+```{r AgeT0}
+DE_AgeT0 <- lfcShrink(dds_exp1, "condition_16dpp_T0_vs_8dpp_T0")
+
+summary(DE_AgeT0, 0.05)
+
+DE_AgeT0 %>% 
+    as.data.frame() %>%
+    mutate(geneid = rownames(.)) %>%
+    dplyr::filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
+    mutate(Direction = fct_relevel(ifelse(log2FoldChange > 0, "Up", "Down"), "Up")) %>%
+    group_by(Direction) %>% 
+    do({tgd <- runTopGoAnalysis(DEgeneSet = .$geneid, 
+                                dds = dds_exp1, 
+                                GOdb = GOList, 
+                                onts = "BP", 
+                                nodeSize = 100)
+       exportGOtable(tgd, "Fisher.weight01", n = 15) %>% 
+           mutate(Fisher.weight01 = as.numeric(Fisher.weight01))
+           }
+       )
 ```
 
 Extract results from dds. These are comparisons (contrasts) of consequtive timepoints within each age.
@@ -1169,7 +1194,8 @@ T48venn <- ggplot(data = venndf,
 
 
 ```{r allvenns, fig.height=10, fig.width=5}
-vennPlots <- cowplot::plot_grid(T4venn, T24venn, T48venn,
+vennPlots <- cowplot::plot_grid(T4venn, T24venn, T48venn, 
+                                label_size = 16,
                                 labels = c("C", "D", "E"), 
                                 align = "v", 
                                 axis = "l", 
@@ -1180,7 +1206,13 @@ vennPlots <- cowplot::plot_grid(T4venn, T24venn, T48venn,
 Make Figure 2 PCA, Summary of DEGs and Venn diagrams:
 
 ```{r fig2, fig.height=10, fig.width=10}
-expPlots <- cowplot::plot_grid(pcaPlot1, sumPlot1, align = "v", labels = c("A", "B"), axis = "l", ncol = 1)
+expPlots <- cowplot::plot_grid(pcaPlot1, sumPlot1, 
+                               align = "v", 
+                               labels = c("A", "B"), 
+                               label_size = 16,
+                               axis = "l", 
+                               ncol = 1
+                               )
 
 cowplot::plot_grid(
     expPlots,
@@ -1581,7 +1613,9 @@ pcaExp2 <- ggplot(pcaData, aes(PC1, PC2, color = Timepoint, shape = Age)) +
     cowplot::theme_cowplot() +
     guides(
     shape = guide_legend(order = 1),
-    fill = guide_legend(order = 0, nrow=2, byrow=TRUE)
+    fill = guide_legend(order = 0, nrow=2, byrow=TRUE),
+    alpha = guide_legend(title = "Treatment", 
+                                override.aes = list(shape = c(22, 15), stroke = 2, alpha = 1))
   ) +
   scale_color_viridis_d(direction = -1) +
   scale_fill_viridis_d(direction = -1) +
@@ -1759,10 +1793,9 @@ cowplot::plot_grid(pcaExp2, alluvialExp2, align = "v", axis = "l", ncol = 1, lab
 dev.off()
 ```
 
-## Weighted gene co-expression analysis
+Just as a check we will compare the experiments using pca Supplemental Figure 4.
 
-Just as a check we will compare the experiments using pca
-```{r compareExp, fig.height=9, fig.width=6}
+```{r compareExp}
 vst_48hrs <- vst(dds_exp1, blind = TRUE)
 vst_48hrs <- vst_48hrs[, vst_48hrs$timepoint != "T48"]
 
@@ -1782,25 +1815,77 @@ both_8dpp <- cbind(assay(vst_filt_8dpp), assay(vst_48hrs_8dpp))
 both_16dpp <- cbind(assay(vst_filt_16dpp), assay(vst_48hrs_16dpp))
 bothAges <- cbind(both_8dpp, both_16dpp)
 
+pcaBoth <- prcomp(t(bothAges))
+
+percentVar <- pcaBoth$sdev^2 / sum( pcaBoth$sdev^2 )
+
 as.data.frame(prcomp(t(bothAges))$x) %>%
   mutate(sample = rownames(.),
          timepoint = fct_relevel(str_extract(sample, pattern = "T[0-9]*"), "T24", after = Inf),
          exp = c(rep(c("1", "2"), each = 9), rep(c("1", "2"), each = 9)),
          age = rep(c("8dpp", "16dpp"), each = 18)
            ) %>%
-  ggplot(aes(x = PC2, y = PC3)) + 
-    geom_point(aes(color = timepoint, shape = exp), size = 2) +
+    mutate(Age = fct_relevel(age, "8dpp")) %>% 
+  ggplot(aes(x = PC1, y = PC2, color = timepoint, shape = Age)) + 
+    geom_point(size = 4, stroke = 2) +
+    geom_point(aes(fill = timepoint, shape = Age, alpha = exp), size = 5, stroke = 0) +
     cowplot::theme_cowplot(font_size = 14) +
+    scale_shape_manual(values = c(21, 24, 21, 24)) +
+    scale_alpha_manual(values = c(0.05, 1, 0.05, 1)) +
+    guides(alpha = guide_legend(title = "Experiment", 
+                                override.aes = list(shape = c(22, 15), stroke = 2, alpha = 1))) +
+    xlab(paste0("PC1: ",round(percentVar[1] * 100),"% variance")) +
+    ylab(paste0("PC2: ",round(percentVar[2] * 100),"% variance")) +
     theme(
         strip.text = element_text(
         colour = "grey10",
         size = rel(0.8),
         margin = margin(0.5 * 7, 0.5 * 7, 0.5 * 7, 0.5 * 7)
         )) + 
-    lemon::facet_rep_wrap(~ age, scales = "free", ncol = 1) +
-    cowplot::panel_border()
-    
+    # lemon::facet_rep_wrap(~ Age, scales = "free", ncol = 1) +
+    cowplot::panel_border() 
 ```
+
+Correct for batch effects:
+
+```{r pcaBothBatch}
+bothAges_BatchEff <- limma::removeBatchEffect(x = bothAges, 
+                                              batch = c(rep(c("1", "2"), each = 9), 
+                                                        rep(c("1", "2"), each = 9))
+                                              )
+
+pcaBoth_BatchEff <- prcomp(t(bothAges_BatchEff))
+
+percentVar <- pcaBoth_BatchEff$sdev^2 / sum( pcaBoth_BatchEff$sdev^2 )
+
+as.data.frame(prcomp(t(bothAges_BatchEff))$x) %>%
+  mutate(sample = rownames(.),
+         timepoint = fct_relevel(str_extract(sample, pattern = "T[0-9]*"), "T24", after = Inf),
+         exp = c(rep(c("1", "2"), each = 9), rep(c("1", "2"), each = 9)),
+         age = rep(c("8dpp", "16dpp"), each = 18)
+           ) %>%
+    mutate(Age = fct_relevel(age, "8dpp")) %>% 
+  ggplot(aes(x = PC1, y = PC2, color = timepoint, shape = Age)) + 
+    geom_point(size = 4, stroke = 2) +
+    geom_point(aes(fill = timepoint, shape = Age, alpha = exp), size = 5, stroke = 0) +
+    cowplot::theme_cowplot(font_size = 14) +
+    scale_shape_manual(values = c(21, 24, 21, 24)) +
+    scale_alpha_manual(values = c(0.05, 1, 0.05, 1)) +
+    guides(alpha = guide_legend(title = "Experiment", 
+                                override.aes = list(shape = c(22, 15), stroke = 2, alpha = 1))) +
+    xlab(paste0("PC1: ",round(percentVar[1] * 100),"% variance")) +
+    ylab(paste0("PC2: ",round(percentVar[2] * 100),"% variance")) +
+    theme(
+        strip.text = element_text(
+        colour = "grey10",
+        size = rel(0.8),
+        margin = margin(0.5 * 7, 0.5 * 7, 0.5 * 7, 0.5 * 7)
+        )) + 
+    # lemon::facet_rep_wrap(~ Age, scales = "free", ncol = 1) +
+    cowplot::panel_border() 
+```
+
+## Weighted gene co-expression analysis
 
 We then separate the samples in to the relevant networks
 
@@ -1821,6 +1906,7 @@ control8dpp <- t(assay(vst)[, vst$treatment == "Cont" & vst$age == "8dpp"])
 
 
 Checking and filtering genes and samples based on WGCNA guidlines
+
 ```{r wgcna_filt}
 gsg <- goodSamplesGenes(infection16dpp, verbose = 3)
 
@@ -1930,6 +2016,7 @@ ggplot() +
 ```
 
 We choose 12 as a power because the both networks reach a scale free topology R^2 fit of greater than 0.8
+
 ```{r adjacency, message=FALSE, warning=FALSE, cache.lazy=FALSE}
 # calculate adjacency matrix using bicor
 softPower <- 12; 
@@ -1953,6 +2040,7 @@ adjacency8 <-
 ```
 
 We then take the adjacency matrix and calculate the Topological Overlap Matrix 
+
 ```{r TOM, cache.lazy=FALSE}
 # TOMType doesn't matter in signed networks
 dissTOM16 <- 1 - TOMsimilarity(adjacency16, TOMType = "unsigned")
@@ -1961,6 +2049,7 @@ dissTOM8 <- 1 - TOMsimilarity(adjacency8, TOMType = "unsigned")
 
 
 Plot the gene dendrograms based on their dissimilarty 
+
 ```{r genetree}
 geneTree16 <- hclust(as.dist(dissTOM16), method = "average");
 geneTree8 <- hclust(as.dist(dissTOM8), method = "average");
@@ -1999,6 +2088,7 @@ table(dynamicColors8)
 ```
 
 ID first module eigengenes and then cluster based on dissimilarity
+
 ```{r dynamicME}
 ## calculate eigengenes
 
@@ -2015,6 +2105,7 @@ MEDiss8 <- 1-cor(MEs8)
 
 
 Let's merge at three different thresholds 
+
 ```{r MEmerge16}
 # Cluster module eigengenes
 METree16 <- hclust(as.dist(MEDiss16), method = "average");
@@ -2086,6 +2177,7 @@ merged16MEs.30 <- merge16.30$newMEs
 ```
 
 And the same for the 8dpp network
+
 ```{r MEmerge8}
 # Cluster module eigengenes
 METree8 <- hclust(as.dist(MEDiss8), method = "average");
@@ -2158,6 +2250,7 @@ merged8MEs.30 <- merge8.30$newMEs
 
 Ok lets compare the merged modules to the orginal dynamic tree cut and the gene
 dendrogram
+
 ```{r plotMerged16}
 plotDendroAndColors(geneTree16, cbind(dynamicColors16, merged16Colors.15, merged16Colors.20, merged16Colors.25, merged16Colors.30),
                     c("Dynamic Tree Cut", "Merged 0.15", "Merged 0.20", "Merged 0.25", "Merged 0.30"),
@@ -2174,8 +2267,8 @@ plotDendroAndColors(geneTree8, cbind(dynamicColors8, merged8Colors.15, merged8Co
                     main = "Cluster dendrogram - 8dpp")
 ```
 
-
 We choose the 0.25 merge level
+
 ```{r selectMerge}
 # Rename to selected merged moduleColors 
 moduleColors16 <- merged16Colors.25
@@ -2201,6 +2294,7 @@ table(moduleLabels8)
 ```
 
 Recolor with prettier colors
+
 ```{r prettyColors}
 
 qual_col_pals <- brewer.pal.info[brewer.pal.info$category == 'qual',]
@@ -2208,6 +2302,7 @@ qual_col_pals <- brewer.pal.info[brewer.pal.info$category == 'qual',]
 col_vector <- unique(unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals))))
 
 # recolor modules so there are no overlaps between the network colors
+RNGkind(sample.kind = "Rounding")
 set.seed(7)
 customColorOrder16 <-
 c(
@@ -2231,6 +2326,7 @@ moduleColors8.custom <- customColorOrder8[moduleLabels8 + 1]
 ```
 
 Selected the new MEs after merging
+
 ```{r newME}
 MEs16Lables <- moduleEigengenes(infection16dpp, colors = moduleLabels16)$eigengenes
 MEs8Lables <- moduleEigengenes(infection8dpp, colors = moduleLabels8)$eigengenes
@@ -2240,8 +2336,8 @@ MEs8Colors <- moduleEigengenes(infection8dpp, colors = moduleColors8.custom)$eig
 ```
 
 Plot the final gene trees and modules
-```{r finalModuleTrees}
 
+```{r finalModuleTrees}
 plotDendroAndColors(geneTree16,
                     cbind(moduleColors16.custom),
                     "Resistant\nmodules\n(16dpp)",
@@ -2255,13 +2351,31 @@ plotDendroAndColors(geneTree8,
                     dendroLabels = FALSE, hang = 0.03,
                     addGuide = TRUE, guideHang = 0.05,
                     main = "Susceptible-aged (8dpp) fruit\ngene dendrogram and module colors")
+# 
+# plotDendroAndColors(geneTree8,
+#                     cbind(moduleColors8.custom),
+#                     "Susceptible\nmodules\n(8dpp)",
+#                     dendroLabels = FALSE, hang = 0.03,
+#                     addGuide = TRUE, guideHang = 0.05,
+#                     main = "Susceptible-aged (8dpp) fruit\ngene dendrogram and module colors")
 
-plotDendroAndColors(geneTree8,
+pdf(file = "fig6A.pdf", width = 6.5, height = 4.5)
+    plotDendroAndColors(geneTree8,
                     cbind(moduleColors8.custom),
                     "Susceptible\nmodules\n(8dpp)",
                     dendroLabels = FALSE, hang = 0.03,
                     addGuide = TRUE, guideHang = 0.05,
                     main = "Susceptible-aged (8dpp) fruit\ngene dendrogram and module colors")
+dev.off()
+
+pdf(file = "fig6B.pdf", width = 6.5, height = 4.5)
+    plotDendroAndColors(geneTree16,
+                    cbind(moduleColors16.custom),
+                    "Resistant\nmodules\n(16dpp)",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05,
+                    main = "Resistant-aged (16dpp) fruit\ngene dendrogram and module colors")
+dev.off()
 
 ```
 
@@ -2302,8 +2416,8 @@ mp_infected <-
   )
 ```
 
-
 Preservation stats for 16dpp network:
+
 ```{r plotPres16}
 presData16dppRef <- tibble(moduleColor = rownames(mp_infected$preservation$Z[[1]][[2]]),
                           Zsummary = mp_infected$preservation$Z[[1]][[2]]$Zsummary.pres,
@@ -2334,6 +2448,7 @@ pr3_16 <- presData16dppRef %>%
 ```
 
 Now presrevation of the 8dpp network:
+
 ```{r plotPres8}
 presData8dppRef <- tibble(moduleColor = rownames(mp_infected$preservation$Z[[2]][[1]]),
                           Zsummary = mp_infected$preservation$Z[[2]][[1]]$Zsummary.pres,
@@ -2369,9 +2484,7 @@ cowplot::plot_grid(pr1_8, pr1_16, pr2_8, pr2_16, pr3_8, pr3_16, ncol = 2)
 
 Plot alluvial comparison of modules
 
-
 ```{r alluvialWithSig, fig.width=13, fig.height=4, warning=FALSE}
-
 networkLodes <- as.data.frame(overlapTable(moduleLabels16, moduleLabels8)$countTable) %>%
   mutate(module16dpp = rownames(.)) %>% 
   gather(key = "module8dpp", value = "overlap", -module16dpp) %>%
@@ -2396,7 +2509,7 @@ networkLodes <- as.data.frame(overlapTable(moduleLabels16, moduleLabels8)$countT
          )
 
 
-  ggplot(data = networkLodes,
+sixC <- ggplot(data = networkLodes,
          aes(
            x = Network,
            y = overlap,
@@ -2434,12 +2547,12 @@ networkLodes <- as.data.frame(overlapTable(moduleLabels16, moduleLabels8)$countT
      cowplot::theme_cowplot(font_size = 14) +
     theme(legend.direction = "horizontal", legend.position = c(0.05, 0.1))
 
+sixC
 ```
 
-
 Plot VST expression data for each module
-```{r moduleExp16}
 
+```{r moduleExp16}
 moduleExp16 <- 
   as.data.frame(assay(vst[colnames(infection16dpp), ])) %>% 
   mutate(gene = rownames(.),
@@ -2539,7 +2652,112 @@ for (i in stripr) {
     k <- k+1
 }
 grid::grid.draw(g1)
+
 ```
+
+Plot VST expression data for each module in susceptible network:
+
+```{r moduleExp8}
+moduleExp8 <- 
+    as.data.frame(assay(vst[colnames(infection8dpp), ])) %>% 
+    mutate(gene = rownames(.),
+           module = moduleColors8.custom,
+           moduleLabel = moduleLabels8) %>%
+    gather("sample", "counts",-gene, -module, -moduleLabel) %>% 
+    mutate(age = rep(vst$age, each = ncol(infection8dpp)),
+           timepoint = rep(str_remove(vst$timepoint, "T"), each =  ncol(infection8dpp)),
+           treatment = rep(vst$treatment, each =  ncol(infection8dpp))
+    ) %>%
+    left_join(., as_tibble(table(moduleColors8.custom)), by = c("module" = "moduleColors8.custom")) %>%
+    mutate(timepoint = as.numeric(timepoint),
+           module = fct_infreq(module),
+           facetLabel = fct_infreq(paste0("S", moduleLabel, " (n=", n,")"))
+    ) 
+
+modSubset <- unique(moduleExp8$moduleLabel)
+modSubset <- modSubset[!modSubset %in% 0]
+```
+
+Plot variance stabilized transformed read counts for susceptible modules and overlay corrisponding values for other treament conditions.
+
+```{r plotModExp8, fig.height=8, fig.width = 7}
+moduleExp8  %>%
+  filter(moduleLabel %in% modSubset) %>%
+  ggplot() +
+  stat_summary(
+    data = filter(moduleExp8, treatment == "Inoc" &
+                    moduleLabel %in% modSubset),
+    fun.data = mean_se,
+    geom = "ribbon",
+    aes(x = timepoint, y = counts, fill = age),
+    alpha = 0.2
+  ) +
+  stat_summary(
+    data = filter(moduleExp8, treatment == "Cont" &
+                    moduleLabel %in% modSubset),
+    fun.data = mean_se,
+    geom = "ribbon",
+    aes(x = timepoint, y = counts, fill = age),
+    alpha = 0.2
+  ) +
+  stat_summary(
+    fun.y = mean,
+    geom = "line",
+    aes(
+      x = timepoint,
+      y = counts,
+      color = age,
+      linetype = treatment
+    )
+  ) + 
+  stat_summary(
+    fun.y = mean,
+    geom = "point",
+    aes(
+      x = timepoint,
+      y = counts,
+      group = paste0(age, treatment)
+    ), shape = 16, 
+    color = rep(rep(c("#00BFC4", "#00BFC4", "#F8766D", "#F8766D"), each = 7), length(modSubset))
+  ) + 
+  facet_wrap(~ facetLabel, scales = "free", ncol = 5) +
+  scale_x_continuous(breaks = c(0, 2, 4, 8, 12, 18, 24)) +
+  labs(x = "Hours post inoculation", y = "Variance stabilizing transformed read count") +
+  guides(linetype = guide_legend(title="Treatment"), 
+         color = guide_legend(title = "Age"),
+         fill = guide_legend(title = "Age")) +
+  scale_linetype_discrete(labels = c("Control", "Inoculated")) +
+  scale_color_discrete(labels = c("8 dpp", "16 dpp")) +
+  scale_fill_discrete(labels = c("8 dpp", "16 dpp")) +
+  cowplot::theme_cowplot(font_size = 11) +
+    theme(strip.text = element_text(
+        colour = "grey10",
+        size = rel(0.8),
+        margin = margin(0.5 * 7, 0.5 * 7, 0.5 * 7, 0.5 * 7)
+        )
+    ) +
+    theme(legend.position=c(0.85, 0.05), 
+        legend.box = 'vertical',
+        legend.margin = margin(t = -5)) +
+    cowplot::panel_border()
+
+# g1 <- ggplot_gtable(ggplot_build(p1))
+# stripr <- which(grepl('strip-t', g1$layout$name) & grepl("gTree", g1$grobs))
+# 
+# fills <- names(sort(table(moduleColors8.custom), decreasing = T))
+# fills <- names(sort(table(moduleColors8.custom), decreasing = T))[unlist(rev(split(1:length(fills), ceiling(seq_along(1:length(fills))/5))), use.names = F)]
+# 
+# 
+# k <- 1
+# 
+# for (i in stripr) {
+#     j <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
+#     g1$grobs[[i]]$grobs[[1]]$children[[j]]$gp$fill <- fills[k]
+#     k <- k+1
+# }
+# grid::grid.draw(g1)
+```
+
 
 <!-- ```{r plotModExp16only16, fig.height=8, fig.width = 7} -->
 <!-- p_only16 <- moduleExp16 %>% -->
@@ -2594,6 +2812,7 @@ grid::grid.draw(g1)
 Arrange the read count data in tidy format and add module numbers and log counts
 
 ```{r tidyExp}
+
 modulecounts16 <- 
   as.data.frame(counts(dds[colnames(infection16dpp), ], normalized = T)) %>% 
   mutate(gene = rownames(.),
@@ -2624,10 +2843,161 @@ modulecounts8 <-
   left_join(., as_tibble(table(moduleColors8.custom)), by = c("module" = "moduleColors8.custom")) %>%
   mutate(timepoint = as.numeric(timepoint),
          module = fct_infreq(module),
-         facetLabel = fct_infreq(paste0("R", moduleLabel, " (n=", n,")")),
+         facetLabel = fct_infreq(paste0("S", moduleLabel, " (n=", n,")")),
          logCounts = log2(counts + 0.5)
   )
 ```
+
+Genes in ModS1 and their expression patterns in other modules. Figure 6D
+
+```{r modS1exp, fig.height=4, fig.width=10}
+
+networkLodes %>% 
+    filter(module8dpp == 1, isSig == "Yes") 
+
+
+S1_R2_genes <- moduleExp8 %>% 
+    dplyr::select(gene, moduleLabel) %>% 
+    left_join(dplyr::select(moduleExp16, gene, moduleLabel), by = "gene", suffix = c(".8dpp", ".16dpp")) %>% 
+    filter(moduleLabel.8dpp == 1) %>% 
+    filter(moduleLabel.16dpp == 2) %>% 
+    pull(gene) %>% 
+    unique()
+
+S1_R3_genes <- moduleExp8 %>% 
+    dplyr::select(gene, moduleLabel) %>% 
+    left_join(dplyr::select(moduleExp16, gene, moduleLabel), by = "gene", suffix = c(".8dpp", ".16dpp")) %>% 
+    filter(moduleLabel.8dpp == 1) %>% 
+    filter(moduleLabel.16dpp == 3) %>% 
+    pull(gene) %>% 
+    unique()
+
+S1_R6_genes <- moduleExp8 %>% 
+    dplyr::select(gene, moduleLabel) %>% 
+    left_join(dplyr::select(moduleExp16, gene, moduleLabel), by = "gene", suffix = c(".8dpp", ".16dpp")) %>% 
+    filter(moduleLabel.8dpp == 1) %>% 
+    filter(moduleLabel.16dpp == 6) %>% 
+    pull(gene) %>% 
+    unique()
+
+S1_R8_genes <- moduleExp8 %>% 
+    dplyr::select(gene, moduleLabel) %>% 
+    left_join(dplyr::select(moduleExp16, gene, moduleLabel), by = "gene", suffix = c(".8dpp", ".16dpp")) %>% 
+    filter(moduleLabel.8dpp == 1) %>% 
+    filter(moduleLabel.16dpp == 8) %>% 
+    pull(gene) %>% 
+    unique()
+
+S1_R12_genes <- moduleExp8 %>% 
+    dplyr::select(gene, moduleLabel) %>% 
+    left_join(dplyr::select(moduleExp16, gene, moduleLabel), by = "gene", suffix = c(".8dpp", ".16dpp")) %>% 
+    filter(moduleLabel.8dpp == 1) %>% 
+    filter(moduleLabel.16dpp == 12) %>% 
+    pull(gene) %>% 
+    unique()
+
+S1_R17_genes <- moduleExp8 %>% 
+    dplyr::select(gene, moduleLabel) %>% 
+    left_join(dplyr::select(moduleExp16, gene, moduleLabel), by = "gene", suffix = c(".8dpp", ".16dpp")) %>% 
+    filter(moduleLabel.8dpp == 1) %>% 
+    filter(moduleLabel.16dpp == 17) %>% 
+    pull(gene) %>% 
+    unique()
+
+consModExp <- bind_rows("S1 vs R2\nGene overlap: 1042" = filter(moduleExp8, gene %in% S1_R2_genes),
+                        "S1 vs R3\nGene overlap: 572" = filter(moduleExp8, gene %in% S1_R3_genes),
+                        "S1 vs R6\nGene overlap: 589" = filter(moduleExp8, gene %in% S1_R6_genes),
+                        "S1 vs R8\nGene overlap: 266" = filter(moduleExp8, gene %in% S1_R8_genes),
+                        "S1 vs R12\nGene overlap: 296" = filter(moduleExp8, gene %in% S1_R12_genes),
+                        "S1 vs R17\nGene overlap: 115" = filter(moduleExp8, gene %in% S1_R17_genes), 
+                        .id = "modComp") %>% 
+    mutate(modComp = fct_inorder(modComp))
+
+sixD <- filter(consModExp, treatment == "Inoc")  %>%
+  ggplot() +
+  stat_summary(
+    data = filter(consModExp, treatment == "Inoc"),
+    fun.data = mean_se,
+    geom = "ribbon",
+    aes(x = timepoint, y = counts, fill = age),
+    alpha = 0.2
+  ) +
+  # stat_summary(
+  #   data = filter(consModExp, treatment == "Cont"),
+  #   fun.data = mean_se,
+  #   geom = "ribbon",
+  #   aes(x = timepoint, y = counts, fill = age),
+  #   alpha = 0.2
+  # ) +
+  stat_summary(
+    fun.y = mean,
+    geom = "line",
+    aes(
+      x = timepoint,
+      y = counts,
+      color = age,
+      # linetype = treatment
+    )
+  ) + 
+  stat_summary(
+    fun.y = mean,
+    geom = "point",
+    aes(
+      x = timepoint,
+      y = counts,
+      group = paste0(age, treatment)
+    ), shape = 16, 
+    # color = rep(rep(c("#00BFC4", "#00BFC4", "#F8766D", "#F8766D"), each = 7), 6)
+  ) + 
+  facet_wrap(~ modComp, scales = "free", ncol = 6) +
+  scale_x_continuous(breaks = c(0, 2, 4, 8, 12, 18, 24)) +
+  labs(x = "Hours post inoculation", y = "Variance stabilizing transformed read count") +
+  guides(#linetype = guide_legend(title="Treatment"), 
+         color = guide_legend(title = "Age"),
+         fill = guide_legend(title = "Age")) +
+  scale_color_discrete(labels = c("8 dpp", "16 dpp")) +
+  scale_fill_discrete(labels = c("8 dpp", "16 dpp")) +
+  cowplot::theme_cowplot(font_size = 11) +
+    theme(strip.text = element_text(
+        colour = "grey10",
+        size = rel(0.8),
+        margin = margin(0.5 * 7, 0.5 * 7, 0.5 * 7, 0.5 * 7)
+        )
+    ) +
+    theme(legend.position = c(0.925, 0.875),
+        # legend.position="bottom", 
+        # legend.box = 'vertical',
+        legend.margin = margin(t = -5)) +
+    cowplot::panel_border()
+
+sixD
+```
+
+Figure 6:
+
+```{r fig6, fig.width=12, fig.height=10}
+sixA <- cowplot::ggdraw() + cowplot::draw_image(image = "fig6A.png")
+sixB <- cowplot::ggdraw() + cowplot::draw_image(image = "fig6B.png")
+
+sixAB <- cowplot::plot_grid(sixA, sixB, 
+                   ncol = 2, 
+                   labels = "AUTO")
+
+cowplot::plot_grid(sixAB,
+                   sixC,
+                   sixD,
+                   ncol = 1, 
+                   labels = c("", "C", "D"),
+                   rel_heights = c(3, 2, 2.1))
+
+# pdf(file = "fig6.pdf", width = 7, 9)
+# cowplot::plot_grid(drPlot, poin, mic, 
+#                    ncol = 1, 
+#                    labels = "AUTO", 
+#                    rel_heights = c(3, 1.5, 1.8))
+# dev.off()
+```
+
 
 Export all genes and GO term enrichment results for Resistant network modules
 
@@ -3012,7 +3382,7 @@ kableExtra::kable(mod4and7GOIs %>%
   kable_styling(latex_options="scale_down")
 ```
 
-Plot all genes identified as early expressed. Supplemental figure X
+Plot all genes identified as early expressed. Supplemental figure 6.
 
 ```{r plotMod5GOIs, fig.height=10, fig.width = 7}
 moduleCount <- 
@@ -3263,6 +3633,197 @@ grid.draw(z)
 pdf(file = "fig9.pdf", width = 7.5, height = 10)
     grid.draw(z)
 dev.off()
+```
+
+Plot the subset of genes discussed in the discussion from data in RNAseq exp1. Supp. Fig. 7:
+
+```{r vstGOI, fig.width=7, fig.height=10}
+exp1Count <- 
+  as.data.frame(counts(dds_exp1, normalized = TRUE)) %>% 
+  mutate(gene = rownames(.),
+         # module = moduleColors16.custom,
+         # moduleLabel = moduleLabels16
+         ) %>%
+  gather("sample", "counts",-gene
+         # , -module, -moduleLabel
+          ) %>% 
+  mutate(age = rep(dds_exp1$age, each = nrow(dds_exp1)),
+         timepoint = rep(str_remove(dds_exp1$timepoint, "T"), each =  nrow(dds_exp1)),
+         timepoint = fct_relevel(timepoint, "0", "4", "24", "48")
+  ) 
+
+GOIs <- exp1Count %>%
+    filter(gene %in% c("Csa1G025960", "Csa4G049610", "Csa6G160180",
+                       "Csa4G285730", "Csa6G495000", "Csa3G845500",
+                       "Csa3G271380", "Csa3G782680", "Csa6G431740",
+                       "Csa1G086390", "Csa3G219720", "Csa4G009900",
+                       "Csa2G069200", "Csa4G640960", "Csa4G411390")
+    ) %>% 
+    mutate(
+        gene = fct_relevel(
+            gene,
+            "Csa1G025960",
+            "Csa4G049610",
+            "Csa6G160180",
+            "Csa4G285730",
+            "Csa6G495000",
+            "Csa3G845500",
+            "Csa3G271380",
+            "Csa3G782680",
+            "Csa6G431740",
+            "Csa1G086390",
+            "Csa3G219720",
+            "Csa4G009900",
+            "Csa2G069200",
+            "Csa4G640960",
+            "Csa4G411390"
+        ),
+        `Annotation group` = fct_relevel(
+            case_when(
+                gene %in% c("Csa1G025960", "Csa4G049610", "Csa6G160180") ~ "Ethylene response",
+                gene %in% c(
+                    "Csa4G285730",
+                    "Csa6G495000",
+                    "Csa3G845500"
+                ) ~ "Reactive oxygen metabolism",
+                gene %in% c("Csa3G271380", "Csa3G782680", "Csa6G431740") ~ "Vesicle/Molecule transport",
+                gene %in% c("Csa1G086390", "Csa3G219720", "Csa4G009900") ~ "Signal transduction",
+                gene %in% c("Csa2G069200", "Csa4G640960", "Csa4G411390") ~ "Specialized metabolism"
+            ),
+            "Ethylene response",
+            "Reactive oxygen metabolism",
+            "Vesicle/Molecule transport",
+            "Signal transduction",
+            "Specialized metabolism"
+        ),
+        facet_order = case_when(
+            gene == "Csa1G025960" ~ "Csa1G025960\nWRKY33",
+            gene == "Csa4G049610" ~  "Csa4G049610\nACC synthase",
+            gene == "Csa6G160180" ~ "Csa6G160180\nACC oxidase",
+            gene == "Csa4G285730" ~ "Csa4G285730\nPeroxidase 2",
+            gene == "Csa6G495000" ~  "Csa6G495000\nPeroxidase superfamily",
+            gene == "Csa3G845500" ~  "Csa3G845500\nRespiratory burst oxidase homologue D",
+            gene == "Csa3G271380" ~ "Csa3G271380\nIST1-LIKE 6",
+            gene == "Csa3G782680" ~  "Csa3G782680\nSyntaxin 121",
+            gene == "Csa6G431740" ~ "Csa6G431740\nABC-2 type transporter",
+            gene == "Csa1G086390" ~  "Csa1G086390\nRLK IN FLOWERS 3",
+            gene == "Csa3G219720" ~ "Csa3G219720\nProtein kinase superfamily",
+            gene == "Csa4G009900" ~  "Csa4G009900\n inositol polyphosphate kinase",
+            gene == "Csa2G069200" ~ "Csa2G069200\nCinnamate-4-hydroxylase",
+            gene == "Csa4G640960" ~  "Csa4G640960\nHXXXD-type acyl-transferase",
+            gene == "Csa4G411390" ~ "Csa4G411390\nGlycosyltransferase family 61"
+        ), 
+        facet_order = factor(
+            facet_order,
+            levels = c(
+                "Csa1G025960\nWRKY33",
+                "Csa4G049610\nACC synthase",
+                "Csa6G160180\nACC oxidase",
+                "Csa4G285730\nPeroxidase 2",
+                "Csa6G495000\nPeroxidase superfamily",
+                "Csa3G845500\nRespiratory burst oxidase homologue D",
+                "Csa3G271380\nIST1-LIKE 6",
+                "Csa3G782680\nSyntaxin 121",
+                "Csa6G431740\nABC-2 type transporter",
+                "Csa1G086390\nRLK IN FLOWERS 3",
+                "Csa3G219720\nProtein kinase superfamily",
+                "Csa4G009900\n inositol polyphosphate kinase",
+                "Csa2G069200\nCinnamate-4-hydroxylase",
+                "Csa4G640960\nHXXXD-type acyl-transferase",
+                "Csa4G411390\nGlycosyltransferase family 61"
+            )
+        )
+    )
+
+
+GOIs %>%
+  ggplot() +
+  stat_summary(
+    fun.y = mean,
+    geom = "line",
+    aes(
+      x = timepoint,
+      y = counts,
+      color = age,
+      group = age
+    )
+  ) +
+  stat_summary(fun.data = "mean_se", geom = "errorbar",
+    aes(
+      x = timepoint,
+      y = counts,
+      color = age,
+      group = age
+    ), width = 0.2
+  ) +
+  # scale_x_continuous(breaks = c(0, 2, 4, 8, 12, 18, 24)) +
+  labs(x = "Hours post inoculation", y = "Normalized read count") +
+  cowplot::theme_cowplot(font_size = 10) +
+    theme(strip.text =         element_text(
+        colour = "grey10",
+        size = rel(0.8) #,
+        #margin = margin(0.8 * 7, 0.8 * 7, 0.8 * 7, 0.8 * 7)
+        ), 
+        legend.position = "bottom") +
+    facet_wrap(~ facet_order, ncol = 3,
+                scales = "free", drop = FALSE) + #paste(gene, Description, sep = "\n")
+    guides(color = guide_legend(title = "Age")) +
+  scale_linetype_discrete(labels = c("Control", "Inoculated")) +
+  scale_color_discrete(labels = c("8 dpp", "16 dpp")) +
+  # theme(legend.position = c(0.75, 0.15), 
+  #       legend.box = 'vertical',
+  #       legend.margin = margin(t = -5)) +
+    cowplot::panel_border()
+
+```
+
+Correlation of the subset of genes discussed in the discussion between Exp1 and 2. Supp. Fig. 8:
+
+```{r GOIcorr}
+moduleCount %>% 
+    filter(timepoint %in% c(0, 4, 24), 
+           treatment == "Inoc" | timepoint == 0
+           ) %>% 
+    filter(gene %in% c(
+            "Csa1G025960",
+            "Csa4G049610",
+            "Csa6G160180",
+            "Csa4G285730",
+            "Csa6G495000",
+            "Csa3G845500",
+            "Csa3G271380",
+            "Csa3G782680",
+            "Csa6G431740",
+            "Csa1G086390",
+            "Csa3G219720",
+            "Csa4G009900",
+            "Csa2G069200",
+            "Csa4G640960",
+            "Csa4G411390"
+            )
+    ) %>% 
+    mutate(timepoint = as.factor(timepoint)) %>% 
+    group_by(gene, timepoint, age) %>% 
+    summarize(avgCount = mean(counts)) %>% 
+    left_join(GOIs %>% 
+    group_by(gene, timepoint, age) %>% 
+    summarize(avgCount = mean(counts)), by = c("gene", "timepoint", "age")) %>% 
+    ggplot(aes(x = log10(avgCount.x), y = log10(avgCount.y))) + 
+        geom_point() +
+        geom_smooth(method = "lm") +
+        ggpubr::stat_cor(method = "pearson") +
+        labs(x = "log10(Avg. Counts) - Exp2", y = "log10(Avg. Counts) - Exp1") +
+    cowplot::theme_cowplot(font_size = 11) +
+    theme(strip.text = element_text(
+        colour = "grey10",
+        size = rel(0.8),
+        margin = margin(0.5 * 7, 0.5 * 7, 0.5 * 7, 0.5 * 7)
+        )
+    ) +
+    theme(legend.position="bottom", 
+        legend.box = 'vertical',
+        legend.margin = margin(t = -5)) +
+    cowplot::panel_border()
 ```
 
 ```{r sessionInfo}
