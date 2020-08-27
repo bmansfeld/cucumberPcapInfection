@@ -18,7 +18,7 @@ header-includes:
 - \usepackage{makecell}
 output:
   pdf_document: default
-subtitle: 'Supplementary File 1: Analysis workflow'
+subtitle: 'Supplementary File 5: Analysis workflow'
 ---
 
 ```{r setup, include=FALSE}
@@ -930,7 +930,7 @@ kable(exportGOtable(tgd, "Fisher.weight01", n = 10) %>%
                               full_width = FALSE)
 ```
 
-Write these genes and their Arabidopsis best hits (from cucurbitgenomics.org) to a csv (Supp File 2):
+Write these genes and their Arabidopsis best hits (from cucurbitgenomics.org) to a csv (Supp File 1):
 
 ```{r expUniqUp16T4}
 timeContrasts %>%
@@ -954,7 +954,7 @@ timeContrasts %>%
         into = c("Match Name", "E-value", "Identity", "Description"),
         sep = "__"
     ) %>%
-    write.csv(file = "UniqUp16T4.csv")
+    write.csv(file = "Supplementary File 1_Genes_Up16dppT4")
 
 ```
 
@@ -3017,7 +3017,7 @@ names(outGenes) <- paste0("Module R", 1:max(modSubset))
 
 library(writexl)
 
-write_xlsx(outGenes, "Supplementary File 3_Resistant_Modules_Genes.xlsx", col_names = T)
+write_xlsx(outGenes, "Supplementary File 2_Resistant_Modules_Genes.xlsx", col_names = T)
 ```
 
 ```{r exportGO16, message=FALSE, warning=FALSE}
@@ -3036,13 +3036,15 @@ k <- k + 1
 names(GOres) <- paste0("Module R", 1:max(modSubset))
 ```
 ```{r outputGO}
-write_xlsx(GOres, "Supplementary File 5_Resistant_Modules_GO_Enrichment.xlsx", col_names = T)
+write_xlsx(GOres, "Supplementary File 4_Resistant_Modules_GO_Enrichment.xlsx", col_names = T)
 
 ```
 
 Export gene module assignments for susceptible network:
 
 ```{r exportModuleGenes8}
+modSubset <- unique(moduleExp8$moduleLabel)
+modSubset <- modSubset[!modSubset %in% 0]
 
 outGenes <- list()
 k <- 1
@@ -3054,11 +3056,11 @@ for (i in 1:max(modSubset)) {
     k <- k + 1
 }
 
-names(outGenes) <- paste0("Module R", 1:max(modSubset))
+names(outGenes) <- paste0("Module S", 1:max(modSubset))
 
 library(writexl)
 
-write_xlsx(outGenes, "Supplementary File 4_Susceptible_Modules_Genes.xlsx", col_names = T)
+write_xlsx(outGenes, "Supplementary File 3_Susceptible_Modules_Genes.xlsx", col_names = T)
 ```
 
 
