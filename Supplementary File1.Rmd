@@ -2485,6 +2485,8 @@ cowplot::plot_grid(pr1_8, pr1_16, pr2_8, pr2_16, pr3_8, pr3_16, ncol = 2)
 Plot alluvial comparison of modules
 
 ```{r alluvialWithSig, fig.width=13, fig.height=4, warning=FALSE}
+### currently requires ggplot2_3.2.1 and ggalluvial_0.10.0 to work with ggnewscale to have to different fill aes
+
 networkLodes <- as.data.frame(overlapTable(moduleLabels16, moduleLabels8)$countTable) %>%
   mutate(module16dpp = rownames(.)) %>% 
   gather(key = "module8dpp", value = "overlap", -module16dpp) %>%
@@ -3002,6 +3004,8 @@ cowplot::plot_grid(sixAB,
 Export all genes and GO term enrichment results for Resistant network modules
 
 ```{r exportModuleGenes16}
+modSubset <- unique(moduleExp16$moduleLabel)
+modSubset <- modSubset[!modSubset %in% 0]
 
 outGenes <- list()
 k <- 1
@@ -3021,6 +3025,7 @@ write_xlsx(outGenes, "Supplementary File 2_Resistant_Modules_Genes.xlsx", col_na
 ```
 
 ```{r exportGO16, message=FALSE, warning=FALSE}
+
 GOres <- list()
 k <- 1
 for (i in 1:max(modSubset)) {
@@ -3829,5 +3834,6 @@ moduleCount %>%
 ```
 
 ```{r sessionInfo}
+
 sessionInfo()
 ```
