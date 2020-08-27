@@ -3071,16 +3071,16 @@ library(splines)
 
 modulecounts16 %>%
   filter(treatment == "Inoc") %>%
-  group_by(moduleLabel) %>%
-  do(anova = anova(lm(logCounts ~ age*ns(timepoint, df = 4), data = .))) %>%
-  broom::tidy(anova) %>%
+  nest_by(moduleLabel) %>%
+  mutate(anova = list(anova(lm(logCounts ~ age*ns(timepoint, df = 4), data = data)))) %>%  
+  summarise(broom::tidy(anova)) %>% 
   filter(str_detect(term, "age:ns"), p.value < 0.05) %>% kable()
 
 modulecounts16 %>%
   filter(treatment == "Inoc") %>%
-  group_by(moduleLabel) %>%
-  do(fit = summary(lm(counts ~ age*ns(timepoint, df = 4), data = .))) %>%
-  broom::tidy(fit) %>%
+  nest_by(moduleLabel) %>%
+  mutate(fit = list(lm(counts ~ age*ns(timepoint, df = 4), data = data))) %>%
+  summarise(broom::tidy(fit)) %>% 
   filter(str_detect(term, "16dpp:ns"), p.value < 0.05) %>%
   kable()
 ```
@@ -3129,9 +3129,9 @@ library(splines)
 
 anovaModExp <- modulecounts16 %>%
   filter(treatment == "Inoc") %>%
-  group_by(moduleLabel) %>%
-  do(fit = summary(lm(counts ~ age*ns(timepoint, df = 4), data = .))) %>%
-  broom::tidy(fit) %>%
+  nest_by(moduleLabel) %>%
+  mutate(fit = list(lm(counts ~ age*ns(timepoint, df = 4), data = data))) %>%
+  summarise(broom::tidy(fit)) %>% 
   filter(str_detect(term, "age16dpp\\:ns.*[1-2]"), p.value < 0.05)
 
 anovaModExp
